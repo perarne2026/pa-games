@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Pulse — Biofeedback-spel</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0f0f23;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow: hidden;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* --- Game canvas fills screen --- */
+    #gameCanvas {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+
+    /* --- UI overlay --- */
+    .overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .overlay > * { pointer-events: auto; }
+
+    .screen { display: none; flex-direction: column; align-items: center; text-align: center; padding: 20px; }
+    .screen.active { display: flex; }
+
+    h1 { font-size: 2.2em; margin-bottom: 8px; }
+    h2 { font-size: 1.6em; margin-bottom: 12px; }
+    .subtitle { color: #aaa; font-size: 1em; margin-bottom: 30px; }
+
+    .btn {
+      padding: 16px 48px;
+      font-size: 1.2em;
+      border: none;
+      border-radius: 16px;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 700;
+      margin: 8px;
+      transition: transform 0.1s;
+    }
+    .btn:active { transform: scale(0.94); }
+    .btn-primary { background: #ff4757; }
+    .btn-secondary { background: #2ed573; }
+    .btn-ghost { background: rgba(255,255,255,0.1); font-size: 1em; padding: 12px 24px; }
+
+    /* HUD */
+    .hud {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      padding: 16px 20px;
+      display: none;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 20;
+      background: linear-gradient(to bottom, rgba(15,15,35,0.9), transparent);
+    }
+    .hud.visible { display: flex; }
+    .hud-item { text-align: center; }
+    .hud-label { font-size: 0.7em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+    .hud-value { font-size: 1.5em; font-weight: 800; }
+    .hud-value.bpm { color: #ff4757; }
+    .hud-value.timer { color: #ffa502; }
+    .hud-value.level { color: #2ed573; }
+
+    /* Center message (mission briefing, countdown, etc.) */
+    .center-msg {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      z-index: 25;
+      display: none;
+    }
+    .center-msg.visible { display: block; }
+    .center-msg .big { font-size: 3em; font-weight: 900; margin-bottom: 8px; }
+    .center-msg .detail { font-size: 1.2em; color: #ccc; }
+
+    /* Target zone indicator */
+    .target-badge {
+      position: fixed;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(46,213,115,0.5);
+      border-radius: 12px;
+      padding: 10px 14px;
+      text-align: center;
+      z-index: 15;
+      display: none;
+    }
+    .target-badge.visible { display: block; }
+    .target-badge .target-label { font-size: 0.65em; color: #aaa; text-transform: uppercase; }
+    .target-badge .target-value { font-size: 1.4em; font-weight: 800; color: #2ed573; }
+
+    /* Result screen extras */
+    .result-icon { font-size: 4em; margin-bottom: 10px; }
+    .result-bpm { font-size: 3em; font-weight: 900; color: #ff4757; }
+    .result-bpm .unit { font-size: 0.35em; color: #aaa; }
+    .stars { font-size: 2.5em; margin: 12px 0; }
+
+    /* Level select */
+    .level-list { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 320px; margin: 10px 0; }
+    .level-card {
+      background: rgba(255,255,255,0.06);
+      border: 2px solid rgba(255,255,255,0.1);
+      border-radius: 14px;
+      padding: 14px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      transition: border-color 0.2s, transform 0.1s;
+    }
+    .level-card:active { transform: scale(0.97); }
+    .level-card.locked { opacity: 0.4; pointer-events: none; }
+    .level-card.completed { border-color: #2ed573; }
+    .level-card .lc-left { text-align: left; }
+    .level-card .lc-name { font-weight: 700; font-size: 1.05em; }
+    .level-card .lc-desc { font-size: 0.8em; color: #aaa; }
+    .level-card .lc-stars { font-size: 1.2em; }
+
+    video, canvas#capture { display: none; }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- HUD -->
+  <div class="hud" id="hud">
+    <div class="hud-item"><div class="hud-label">Level</div><div class="hud-value level" id="hudLevel">1</div></div>
+    <div class="hud-item"><div class="hud-label">Puls</div><div class="hud-value bpm" id="hudBpm">--</div></div>
+    <div class="hud-item"><div class="hud-label">Tid</div><div class="hud-value timer" id="hudTimer">--</div></div>
+  </div>
+
+  <!-- Target badge -->
+  <div class="target-badge" id="targetBadge">
+    <div class="target-label">Mål</div>
+    <div class="target-value" id="targetValue">100</div>
+    <div class="target-label">BPM</div>
+  </div>
+
+  <!-- Center message -->
+  <div class="center-msg" id="centerMsg">
+    <div class="big" id="centerBig"></div>
+    <div class="detail" id="centerDetail"></div>
+  </div>
+
+  <div class="overlay">
+    <!-- MENU -->
+    <div class="screen active" id="menuScreen">
+      <h1>PULSE</h1>
+      <div class="subtitle">Kontrollera din puls. Klara levels.</div>
+      <button class="btn btn-primary" onclick="showLevels()">Spela</button>
+    </div>
+
+    <!-- LEVELS -->
+    <div class="screen" id="levelsScreen">
+      <h2>Välj Level</h2>
+      <div class="level-list" id="levelList"></div>
+      <button class="btn btn-ghost" onclick="showScreen('menuScreen')">Tillbaka</button>
+    </div>
+
+    <!-- MISSION BRIEFING -->
+    <div class="screen" id="missionScreen">
+      <div class="subtitle">UPPDRAG</div>
+      <h2 id="missionTitle"></h2>
+      <div class="detail" id="missionDesc" style="color:#aaa; margin-bottom:24px;"></div>
+      <button class="btn btn-primary" onclick="startActivePhase()">Kör!</button>
+    </div>
+
+    <!-- MEASURE PROMPT -->
+    <div class="screen" id="measureScreen">
+      <h2>Dags att mäta!</h2>
+      <div class="subtitle">Lägg fingret över kameran och blixten</div>
+      <button class="btn btn-primary" onclick="startMeasuring()">Starta mätning</button>
+    </div>
+
+    <!-- RESULT -->
+    <div class="screen" id="resultScreen">
+      <div class="result-icon" id="resultIcon"></div>
+      <h2 id="resultTitle"></h2>
+      <div class="result-bpm" id="resultBpm"></div>
+      <div class="stars" id="resultStars"></div>
+      <div class="subtitle" id="resultMsg"></div>
+      <button class="btn btn-secondary" id="resultNextBtn" onclick="nextAfterResult()">Nästa level</button>
+      <button class="btn btn-ghost" onclick="showLevels()" style="margin-top:4px;">Alla levels</button>
+    </div>
+  </div>
+
+  <!-- Hidden video/canvas for PPG -->
+  <video id="video" playsinline autoplay muted></video>
+  <canvas id="capture"></canvas>
+
+  <script>
+    // ===================== LEVELS =====================
+    const LEVELS = [
+      {
+        id: 1,
+        name: "Uppvärmning",
+        type: "raise",
+        target: 90,
+        timeLimit: 40,
+        measureTime: 12,
+        desc: "Höj pulsen till minst 90 BPM! Spring på stället, hoppa, gör armhävningar.",
+        briefing: "Höj pulsen till 90 BPM"
+      },
+      {
+        id: 2,
+        name: "Springer du?",
+        type: "raise",
+        target: 105,
+        timeLimit: 45,
+        measureTime: 12,
+        desc: "Nu ska du upp i 105! Spring snabbare, gör burpees, hoppa högt.",
+        briefing: "Höj pulsen till 105 BPM"
+      },
+      {
+        id: 3,
+        name: "Lugna ner dig",
+        type: "lower",
+        target: 75,
+        timeLimit: 60,
+        measureTime: 15,
+        desc: "Andas lugnt och djupt. Blunda. Sänk pulsen till under 75 BPM.",
+        briefing: "Sänk pulsen till 75 BPM"
+      },
+      {
+        id: 4,
+        name: "Full gas!",
+        type: "raise",
+        target: 120,
+        timeLimit: 50,
+        measureTime: 12,
+        desc: "Allt du har! Spring, hoppa, dansa — upp till 120 BPM!",
+        briefing: "Höj pulsen till 120 BPM"
+      },
+      {
+        id: 5,
+        name: "Zen-mästaren",
+        type: "lower",
+        target: 65,
+        timeLimit: 90,
+        measureTime: 15,
+        desc: "Riktigt lugn nu. Andas in 4 sek, ut 6 sek. Sikta på under 65.",
+        briefing: "Sänk pulsen till 65 BPM"
+      },
+      {
+        id: 6,
+        name: "Precision",
+        type: "precision",
+        targetLow: 80,
+        targetHigh: 90,
+        timeLimit: 60,
+        measureTime: 15,
+        desc: "Håll pulsen mellan 80-90 BPM. Inte för högt, inte för lågt!",
+        briefing: "Håll pulsen på 80–90 BPM"
+      }
+    ];
+
+    // ===================== STATE =====================
+    let gameState = 'menu'; // menu, levels, mission, active, measure, result
+    let currentLevel = null;
+    let activeTimer = 0;
+    let activeInterval = null;
+    let progress = loadProgress();
+
+    // PPG state
+    let stream = null;
+    let measuring = false;
+    let redValues = [];
+    let timestamps = [];
+    let lastBPM = 0;
+    let fingerDetected = false;
+    let measureStartTime = 0;
+    let stableBpmReadings = [];
+
+    // Canvas
+    const gameCanvas = document.getElementById('gameCanvas');
+    const gCtx = gameCanvas.getContext('2d');
+    const video = document.getElementById('video');
+    const capture = document.getElementById('capture');
+    const capCtx = capture.getContext('2d', { willReadFrequently: true });
+    capture.width = 40;
+    capture.height = 40;
+
+    // Rocket
+    let rocketY = 0.5; // 0 = bottom, 1 = top (normalized)
+    let rocketTargetY = 0.5;
+    let rocketTrail = [];
+    let stars = [];
+
+    // ===================== INIT =====================
+    function init() {
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+      generateStars();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function resizeCanvas() {
+      gameCanvas.width = window.innerWidth * (window.devicePixelRatio || 1);
+      gameCanvas.height = window.innerHeight * (window.devicePixelRatio || 1);
+    }
+
+    function generateStars() {
+      stars = [];
+      for (let i = 0; i < 80; i++) {
+        stars.push({
+          x: Math.random(),
+          y: Math.random(),
+          size: Math.random() * 2 + 0.5,
+          twinkle: Math.random() * Math.PI * 2
+        });
+      }
+    }
+
+    // ===================== SAVE/LOAD =====================
+    function loadProgress() {
+      try {
+        return JSON.parse(localStorage.getItem('pulse_progress')) || {};
+      } catch { return {}; }
+    }
+
+    function saveProgress() {
+      localStorage.setItem('pulse_progress', JSON.stringify(progress));
+    }
+
+    function getLevelStars(levelId, bpm) {
+      const level = LEVELS.find(l => l.id === levelId);
+      if (!level) return 0;
+
+      if (level.type === 'raise') {
+        if (bpm < level.target) return 0;
+        if (bpm >= level.target + 15) return 3;
+        if (bpm >= level.target + 5) return 2;
+        return 1;
+      } else if (level.type === 'lower') {
+        if (bpm > level.target) return 0;
+        if (bpm <= level.target - 10) return 3;
+        if (bpm <= level.target - 3) return 2;
+        return 1;
+      } else { // precision
+        if (bpm < level.targetLow || bpm > level.targetHigh) return 0;
+        const mid = (level.targetLow + level.targetHigh) / 2;
+        const diff = Math.abs(bpm - mid);
+        if (diff <= 2) return 3;
+        if (diff <= 4) return 2;
+        return 1;
+      }
+    }
+
+    // ===================== SCREENS =====================
+    function showScreen(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      const el = document.getElementById(id);
+      if (el) el.classList.add('active');
+
+      document.getElementById('hud').classList.remove('visible');
+      document.getElementById('targetBadge').classList.remove('visible');
+      hideCenterMsg();
+    }
+
+    function showLevels() {
+      gameState = 'levels';
+      showScreen('levelsScreen');
+      renderLevelList();
+    }
+
+    function renderLevelList() {
+      const list = document.getElementById('levelList');
+      list.innerHTML = '';
+      LEVELS.forEach((level, i) => {
+        const unlocked = i === 0 || progress[LEVELS[i - 1].id];
+        const completed = progress[level.id];
+        const starCount = completed ? completed.stars : 0;
+
+        const card = document.createElement('div');
+        card.className = 'level-card' + (unlocked ? '' : ' locked') + (completed ? ' completed' : '');
+        card.innerHTML = `
+          <div class="lc-left">
+            <div class="lc-name">${level.id}. ${level.name}</div>
+            <div class="lc-desc">${level.briefing}</div>
+          </div>
+          <div class="lc-stars">${starCount > 0 ? '⭐'.repeat(starCount) : (unlocked ? '→' : '🔒')}</div>
+        `;
+        if (unlocked) card.onclick = () => startLevel(level);
+        list.appendChild(card);
+      });
+    }
+
+    // ===================== GAME FLOW =====================
+    function startLevel(level) {
+      currentLevel = level;
+      gameState = 'mission';
+      showScreen('missionScreen');
+
+      document.getElementById('missionTitle').textContent = level.briefing;
+      document.getElementById('missionDesc').textContent = level.desc;
+
+      // Reset rocket
+      rocketY = 0.5;
+      rocketTargetY = 0.5;
+      rocketTrail = [];
+      lastBPM = 0;
+      stableBpmReadings = [];
+    }
+
+    function startActivePhase() {
+      gameState = 'active';
+      showScreen(null);
+
+      // Show HUD
+      document.getElementById('hud').classList.add('visible');
+      document.getElementById('hudLevel').textContent = currentLevel.id;
+      document.getElementById('hudBpm').textContent = '--';
+
+      // Show target
+      const badge = document.getElementById('targetBadge');
+      badge.classList.add('visible');
+      if (currentLevel.type === 'precision') {
+        document.getElementById('targetValue').textContent = `${currentLevel.targetLow}–${currentLevel.targetHigh}`;
+      } else {
+        document.getElementById('targetValue').textContent = currentLevel.target;
+      }
+
+      // Start countdown timer
+      activeTimer = currentLevel.timeLimit;
+      updateTimerDisplay();
+      showCenterMsg('GÖR DIG REDO!', currentLevel.type === 'raise' ? 'Spring, hoppa, rör dig!' : (currentLevel.type === 'lower' ? 'Andas lugnt...' : 'Håll balansen!'));
+
+      setTimeout(() => {
+        showCenterMsg('3', '');
+        setTimeout(() => {
+          showCenterMsg('2', '');
+          setTimeout(() => {
+            showCenterMsg('1', '');
+            setTimeout(() => {
+              showCenterMsg('KÖR!', '');
+              setTimeout(() => hideCenterMsg(), 800);
+
+              // Start active timer
+              activeInterval = setInterval(() => {
+                activeTimer--;
+                updateTimerDisplay();
+                if (activeTimer <= 0) {
+                  clearInterval(activeInterval);
+                  activeInterval = null;
+                  endActivePhase();
+                }
+                if (activeTimer === 5) {
+                  showCenterMsg('5 sek kvar!', '');
+                  setTimeout(() => hideCenterMsg(), 1500);
+                }
+              }, 1000);
+            }, 600);
+          }, 800);
+        }, 800);
+      }, 1500);
+    }
+
+    function updateTimerDisplay() {
+      document.getElementById('hudTimer').textContent = activeTimer + 's';
+    }
+
+    function endActivePhase() {
+      gameState = 'measure';
+      document.getElementById('hud').classList.remove('visible');
+      document.getElementById('targetBadge').classList.remove('visible');
+      showScreen('measureScreen');
+    }
+
+    async function startMeasuring() {
+      showScreen(null);
+      document.getElementById('hud').classList.add('visible');
+      document.getElementById('targetBadge').classList.add('visible');
+      document.getElementById('hudTimer').textContent = currentLevel.measureTime + 's';
+
+      showCenterMsg('Håll fingret stilla...', 'Mäter din puls');
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 40 }, height: { ideal: 40 } }
+        });
+        video.srcObject = stream;
+        await video.play();
+
+        const track = stream.getVideoTracks()[0];
+        try {
+          await track.applyConstraints({ advanced: [{ torch: true }] });
+        } catch (e) { /* torch not available */ }
+
+        measuring = true;
+        redValues = [];
+        timestamps = [];
+        stableBpmReadings = [];
+        measureStartTime = performance.now();
+
+        // Measure timer
+        let measureTimer = currentLevel.measureTime;
+        const mi = setInterval(() => {
+          measureTimer--;
+          document.getElementById('hudTimer').textContent = measureTimer + 's';
+          if (measureTimer <= 0) {
+            clearInterval(mi);
+            finishMeasuring();
+          }
+        }, 1000);
+
+        requestAnimationFrame(processPPGFrame);
+
+      } catch (err) {
+        showCenterMsg('Kamerafel', err.message);
+        setTimeout(() => { showScreen('measureScreen'); }, 2000);
+      }
+    }
+
+    function finishMeasuring() {
+      measuring = false;
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+
+      // Use median of stable readings for final BPM
+      let finalBPM = 0;
+      if (stableBpmReadings.length > 0) {
+        const sorted = [...stableBpmReadings].sort((a, b) => a - b);
+        finalBPM = sorted[Math.floor(sorted.length / 2)];
+      } else if (lastBPM > 0) {
+        finalBPM = lastBPM;
+      }
+
+      showResult(finalBPM);
+    }
+
+    function showResult(bpm) {
+      gameState = 'result';
+      document.getElementById('hud').classList.remove('visible');
+      document.getElementById('targetBadge').classList.remove('visible');
+      hideCenterMsg();
+      showScreen('resultScreen');
+
+      const starCount = getLevelStars(currentLevel.id, bpm);
+      const passed = starCount > 0;
+
+      document.getElementById('resultIcon').textContent = passed ? '🚀' : '💔';
+      document.getElementById('resultTitle').textContent = passed ? 'Klarat!' : 'Inte riktigt...';
+      document.getElementById('resultBpm').innerHTML = `${bpm || '?'}<span class="unit"> BPM</span>`;
+      document.getElementById('resultStars').textContent = starCount > 0 ? '⭐'.repeat(starCount) + '☆'.repeat(3 - starCount) : '☆☆☆';
+
+      if (passed) {
+        let msg = '';
+        if (currentLevel.type === 'raise') msg = `Mål: ${currentLevel.target}+ BPM`;
+        else if (currentLevel.type === 'lower') msg = `Mål: under ${currentLevel.target} BPM`;
+        else msg = `Mål: ${currentLevel.targetLow}–${currentLevel.targetHigh} BPM`;
+        document.getElementById('resultMsg').textContent = msg;
+
+        // Save progress
+        if (!progress[currentLevel.id] || progress[currentLevel.id].stars < starCount) {
+          progress[currentLevel.id] = { stars: starCount, bpm: bpm };
+          saveProgress();
+        }
+
+        // Next level button
+        const nextLevel = LEVELS.find(l => l.id === currentLevel.id + 1);
+        const btn = document.getElementById('resultNextBtn');
+        if (nextLevel) {
+          btn.textContent = 'Nästa level';
+          btn.style.display = '';
+        } else {
+          btn.textContent = 'Alla klara! 🎉';
+          btn.style.display = '';
+        }
+      } else {
+        let msg = '';
+        if (currentLevel.type === 'raise') msg = `Du behövde ${currentLevel.target}+ BPM. Försök igen!`;
+        else if (currentLevel.type === 'lower') msg = `Du behövde under ${currentLevel.target} BPM. Försök igen!`;
+        else msg = `Du behövde ${currentLevel.targetLow}–${currentLevel.targetHigh} BPM. Försök igen!`;
+        document.getElementById('resultMsg').textContent = msg;
+
+        document.getElementById('resultNextBtn').textContent = 'Försök igen';
+        document.getElementById('resultNextBtn').style.display = '';
+      }
+    }
+
+    function nextAfterResult() {
+      const starCount = getLevelStars(currentLevel.id, lastBPM);
+      if (starCount > 0) {
+        const nextLevel = LEVELS.find(l => l.id === currentLevel.id + 1);
+        if (nextLevel) {
+          startLevel(nextLevel);
+        } else {
+          showLevels();
+        }
+      } else {
+        startLevel(currentLevel); // Retry
+      }
+    }
+
+    // ===================== CENTER MESSAGE =====================
+    function showCenterMsg(big, detail) {
+      const el = document.getElementById('centerMsg');
+      document.getElementById('centerBig').textContent = big;
+      document.getElementById('centerDetail').textContent = detail || '';
+      el.classList.add('visible');
+    }
+    function hideCenterMsg() {
+      document.getElementById('centerMsg').classList.remove('visible');
+    }
+
+    // ===================== PPG / PULSE =====================
+    function processPPGFrame() {
+      if (!measuring) return;
+
+      capCtx.drawImage(video, 0, 0, capture.width, capture.height);
+      const frame = capCtx.getImageData(0, 0, capture.width, capture.height);
+      const data = frame.data;
+
+      let totalR = 0, totalG = 0, totalB = 0;
+      const pixels = data.length / 4;
+      for (let i = 0; i < data.length; i += 4) {
+        totalR += data[i];
+        totalG += data[i + 1];
+        totalB += data[i + 2];
+      }
+      const avgR = totalR / pixels;
+      const avgG = totalG / pixels;
+      const avgB = totalB / pixels;
+
+      const brightness = (avgR + avgG + avgB) / 3;
+      const redRatio = avgR / (avgR + avgG + avgB);
+      fingerDetected = brightness > 50 && redRatio > 0.4;
+
+      const now = performance.now();
+
+      if (fingerDetected) {
+        redValues.push(avgR);
+        timestamps.push(now);
+
+        const cutoff = now - 10000;
+        while (timestamps.length > 0 && timestamps[0] < cutoff) {
+          timestamps.shift();
+          redValues.shift();
+        }
+
+        if (timestamps.length > 0 && (now - timestamps[0]) > 3000) {
+          const bpm = calculateBPM();
+          if (bpm > 40 && bpm < 200) {
+            lastBPM = bpm;
+            stableBpmReadings.push(bpm);
+            document.getElementById('hudBpm').textContent = bpm;
+
+            // Update rocket based on BPM
+            updateRocketFromBPM(bpm);
+          }
+        }
+
+        showCenterMsg(lastBPM > 0 ? lastBPM + ' BPM' : 'Mäter...', fingerDetected ? 'Håll stilla' : 'Lägg fingret på kameran');
+      } else {
+        showCenterMsg('Inget finger!', 'Lägg fingret över kameran + blixten');
+        redValues = [];
+        timestamps = [];
+      }
+
+      requestAnimationFrame(processPPGFrame);
+    }
+
+    function calculateBPM() {
+      if (redValues.length < 30) return 0;
+
+      const windowSize = 5;
+      const smoothed = [];
+      for (let i = 0; i < redValues.length; i++) {
+        let sum = 0, count = 0;
+        for (let j = Math.max(0, i - windowSize); j <= Math.min(redValues.length - 1, i + windowSize); j++) {
+          sum += redValues[j];
+          count++;
+        }
+        smoothed.push(sum / count);
+      }
+
+      const detrended = [];
+      const trendWindow = 30;
+      for (let i = 0; i < smoothed.length; i++) {
+        let trendSum = 0, trendCount = 0;
+        for (let j = Math.max(0, i - trendWindow); j <= Math.min(smoothed.length - 1, i + trendWindow); j++) {
+          trendSum += smoothed[j];
+          trendCount++;
+        }
+        detrended.push(smoothed[i] - trendSum / trendCount);
+      }
+
+      const peaks = [];
+      for (let i = 1; i < detrended.length - 1; i++) {
+        if (detrended[i] > detrended[i - 1] && detrended[i] > detrended[i + 1] && detrended[i] > 0) {
+          const localMax = Math.max(...detrended.slice(Math.max(0, i - 10), i + 10));
+          if (detrended[i] > localMax * 0.6) {
+            peaks.push(i);
+          }
+        }
+      }
+
+      const filteredPeaks = [peaks[0]];
+      for (let i = 1; i < peaks.length; i++) {
+        const timeDiff = timestamps[peaks[i]] - timestamps[filteredPeaks[filteredPeaks.length - 1]];
+        if (timeDiff > 300) filteredPeaks.push(peaks[i]);
+      }
+
+      if (filteredPeaks.length < 2) return 0;
+
+      let totalInterval = 0, intervalCount = 0;
+      for (let i = 1; i < filteredPeaks.length; i++) {
+        const interval = timestamps[filteredPeaks[i]] - timestamps[filteredPeaks[i - 1]];
+        if (interval > 300 && interval < 1500) {
+          totalInterval += interval;
+          intervalCount++;
+        }
+      }
+
+      if (intervalCount === 0) return 0;
+      return Math.round(60000 / (totalInterval / intervalCount));
+    }
+
+    function updateRocketFromBPM(bpm) {
+      if (!currentLevel) return;
+      if (currentLevel.type === 'raise') {
+        // Map 50-150 BPM to 0.1-0.9
+        rocketTargetY = Math.max(0.1, Math.min(0.9, (bpm - 50) / 100));
+      } else if (currentLevel.type === 'lower') {
+        // Inverted: lower BPM = higher rocket
+        rocketTargetY = Math.max(0.1, Math.min(0.9, 1 - (bpm - 40) / 100));
+      } else {
+        // Precision: center when in range
+        const mid = (currentLevel.targetLow + currentLevel.targetHigh) / 2;
+        rocketTargetY = Math.max(0.1, Math.min(0.9, 0.5 + (bpm - mid) / 60));
+      }
+    }
+
+    // ===================== GAME LOOP / RENDERING =====================
+    function gameLoop(time) {
+      const w = gameCanvas.width;
+      const h = gameCanvas.height;
+      const dpr = window.devicePixelRatio || 1;
+
+      // Clear
+      gCtx.fillStyle = '#0f0f23';
+      gCtx.fillRect(0, 0, w, h);
+
+      // Stars background
+      drawStars(w, h, time, dpr);
+
+      // Target zone (during active/measure)
+      if ((gameState === 'active' || gameState === 'measure') && currentLevel) {
+        drawTargetZone(w, h, dpr);
+      }
+
+      // Rocket
+      if (gameState !== 'menu' && gameState !== 'levels') {
+        // Smooth rocket movement
+        rocketY += (rocketTargetY - rocketY) * 0.05;
+
+        // Trail
+        rocketTrail.push({ x: w * 0.15, y: h * (1 - rocketY), time: time });
+        if (rocketTrail.length > 30) rocketTrail.shift();
+
+        drawRocket(w, h, time, dpr);
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function drawStars(w, h, time, dpr) {
+      stars.forEach(s => {
+        const alpha = 0.3 + 0.7 * Math.abs(Math.sin(time * 0.001 + s.twinkle));
+        gCtx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+        gCtx.fillRect(s.x * w, s.y * h, s.size * dpr, s.size * dpr);
+      });
+    }
+
+    function drawTargetZone(w, h, dpr) {
+      let zoneTop, zoneBottom;
+
+      if (currentLevel.type === 'raise') {
+        const targetNorm = (currentLevel.target - 50) / 100;
+        zoneTop = h * (1 - 0.9);
+        zoneBottom = h * (1 - targetNorm);
+      } else if (currentLevel.type === 'lower') {
+        const targetNorm = 1 - (currentLevel.target - 40) / 100;
+        zoneTop = h * (1 - 0.9);
+        zoneBottom = h * (1 - targetNorm);
+      } else {
+        const lowNorm = 0.5 + (currentLevel.targetLow - (currentLevel.targetLow + currentLevel.targetHigh) / 2) / 60;
+        const highNorm = 0.5 + (currentLevel.targetHigh - (currentLevel.targetLow + currentLevel.targetHigh) / 2) / 60;
+        zoneTop = h * (1 - highNorm);
+        zoneBottom = h * (1 - lowNorm);
+      }
+
+      // Green target zone
+      gCtx.fillStyle = 'rgba(46, 213, 115, 0.08)';
+      gCtx.fillRect(0, zoneTop, w, zoneBottom - zoneTop);
+
+      // Zone borders
+      gCtx.strokeStyle = 'rgba(46, 213, 115, 0.4)';
+      gCtx.lineWidth = 2 * dpr;
+      gCtx.setLineDash([8 * dpr, 8 * dpr]);
+      gCtx.beginPath();
+      gCtx.moveTo(0, zoneTop);
+      gCtx.lineTo(w, zoneTop);
+      gCtx.moveTo(0, zoneBottom);
+      gCtx.lineTo(w, zoneBottom);
+      gCtx.stroke();
+      gCtx.setLineDash([]);
+
+      // Zone label
+      gCtx.fillStyle = 'rgba(46, 213, 115, 0.6)';
+      gCtx.font = `${12 * dpr}px -apple-system, sans-serif`;
+      gCtx.fillText('MÅLZON', 12 * dpr, zoneTop + 18 * dpr);
+    }
+
+    function drawRocket(w, h, time, dpr) {
+      const rx = w * 0.15;
+      const ry = h * (1 - rocketY);
+      const size = 28 * dpr;
+
+      // Trail
+      gCtx.beginPath();
+      for (let i = 0; i < rocketTrail.length; i++) {
+        const t = rocketTrail[i];
+        const age = (time - t.time) / 500;
+        if (age > 1) continue;
+        const alpha = (1 - age) * 0.5;
+        const trailSize = size * 0.3 * (1 - age);
+        gCtx.fillStyle = `rgba(255, 165, 0, ${alpha})`;
+        gCtx.beginPath();
+        gCtx.arc(t.x, t.y + size * 0.3, trailSize, 0, Math.PI * 2);
+        gCtx.fill();
+      }
+
+      // Flame
+      const flameLen = size * (0.5 + 0.3 * Math.sin(time * 0.02));
+      const grad = gCtx.createLinearGradient(rx, ry + size * 0.3, rx, ry + size * 0.3 + flameLen);
+      grad.addColorStop(0, '#ffa502');
+      grad.addColorStop(0.5, '#ff4757');
+      grad.addColorStop(1, 'rgba(255,71,87,0)');
+      gCtx.fillStyle = grad;
+      gCtx.beginPath();
+      gCtx.moveTo(rx - size * 0.15, ry + size * 0.25);
+      gCtx.lineTo(rx + size * 0.15, ry + size * 0.25);
+      gCtx.lineTo(rx, ry + size * 0.25 + flameLen);
+      gCtx.closePath();
+      gCtx.fill();
+
+      // Rocket body
+      gCtx.fillStyle = '#fff';
+      gCtx.beginPath();
+      gCtx.moveTo(rx, ry - size * 0.5); // nose
+      gCtx.lineTo(rx + size * 0.2, ry + size * 0.15);
+      gCtx.lineTo(rx + size * 0.25, ry + size * 0.3);
+      gCtx.lineTo(rx - size * 0.25, ry + size * 0.3);
+      gCtx.lineTo(rx - size * 0.2, ry + size * 0.15);
+      gCtx.closePath();
+      gCtx.fill();
+
+      // Nose cone
+      gCtx.fillStyle = '#ff4757';
+      gCtx.beginPath();
+      gCtx.moveTo(rx, ry - size * 0.5);
+      gCtx.lineTo(rx + size * 0.12, ry - size * 0.2);
+      gCtx.lineTo(rx - size * 0.12, ry - size * 0.2);
+      gCtx.closePath();
+      gCtx.fill();
+
+      // Window
+      gCtx.fillStyle = '#70a1ff';
+      gCtx.beginPath();
+      gCtx.arc(rx, ry, size * 0.1, 0, Math.PI * 2);
+      gCtx.fill();
+
+      // Fins
+      gCtx.fillStyle = '#ff4757';
+      gCtx.beginPath();
+      gCtx.moveTo(rx - size * 0.2, ry + size * 0.15);
+      gCtx.lineTo(rx - size * 0.35, ry + size * 0.35);
+      gCtx.lineTo(rx - size * 0.15, ry + size * 0.3);
+      gCtx.closePath();
+      gCtx.fill();
+
+      gCtx.beginPath();
+      gCtx.moveTo(rx + size * 0.2, ry + size * 0.15);
+      gCtx.lineTo(rx + size * 0.35, ry + size * 0.35);
+      gCtx.lineTo(rx + size * 0.15, ry + size * 0.3);
+      gCtx.closePath();
+      gCtx.fill();
+    }
+
+    // ===================== START =====================
+    init();
+  </script>
+</body>
+</html>
