@@ -84,6 +84,11 @@ const COL_BG = [30, 20, 12];
 const COL_PLAN = [255, 200, 80];
 const COL_EGG = [245, 235, 210];
 const COL_EGG_READY = [180, 255, 160];
+const COL_SCOUT = [60, 130, 180];
+const COL_SCOUT_EGG = [210, 225, 245];
+
+const SCOUT_SPEED = 90;           // 1.5× worker
+const SCOUT_SNIFF_RADIUS = 4;     // doftsinne — avslöjar 9×9
 
 const DOUBLE_TAP_MS = 350;
 
@@ -123,6 +128,7 @@ function createColony() {
     queenX: QUEEN_X,
     queenY: QUEEN_Y,
     eggsPaused: false,
+    nextEggType: "worker",
   };
 }
 
@@ -130,8 +136,19 @@ let colony = null;
 
 // === Resurs-val ===
 function pickResource(depth) {
-  const table = depth > 12 ? FAR_TABLE : NEAR_TABLE;
-  const tw = totalWeight(table);
+  const base = depth > 12 ? FAR_TABLE : NEAR_TABLE;
+  // Vikta mot bristvaror — öka chans för resurser som ger det kolonin saknar
+  const table = base.map(e => {
+    const res = RESOURCES[e.kind];
+    let boost = 1;
+    if (colony) {
+      if (res.water > 0 && colony.water < 5) boost = 3;
+      else if (res.protein > 0 && colony.protein < 5) boost = 2.5;
+      else if (res.food > 0 && colony.food > 50 && res.water === 0 && res.protein === 0) boost = 0.3;
+    }
+    return { kind: e.kind, weight: e.weight * boost };
+  });
+  const tw = table.reduce((s, r) => s + r.weight, 0);
   let r = Math.random() * tw;
   for (const entry of table) {
     r -= entry.weight;
@@ -224,6 +241,23 @@ function revealAround(col, gx, gy) {
       if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H)
         col.grid[ny][nx].revealed = true;
     }
+}
+
+// Spejarens doftsinne — avslöjar stor radie, returnerar hittade resurser
+function scoutSniff(col, gx, gy) {
+  const r = SCOUT_SNIFF_RADIUS;
+  const found = [];
+  for (let dy = -r; dy <= r; dy++)
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy > r * r) continue; // cirkulär radie
+      const nx = gx + dx, ny = gy + dy;
+      if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) continue;
+      const wasRevealed = col.grid[ny][nx].revealed;
+      col.grid[ny][nx].revealed = true;
+      if (!wasRevealed && col.grid[ny][nx].resource && col.grid[ny][nx].resource.tripsLeft > 0)
+        found.push({ x: nx, y: ny, resource: col.grid[ny][nx].resource });
+    }
+  return found;
 }
 
 function completeDig(col, gx, gy) {
@@ -374,6 +408,70 @@ function findNearestResource(col, sx, sy) {
   return null;
 }
 
+// Hitta tunnel-tile närmast fog-gränsen (för spejare att vandra till och nosa)
+function findUnexploredTarget(col, sx, sy) {
+  // BFS från spejarens position, hitta tunnel/chamber intill ej avslöjad tile
+  const visited = new Set();
+  const queue = [{ x: sx, y: sy }];
+  visited.add(sy * GRID_W + sx);
+  const candidates = [];
+  let steps = 0;
+  while (queue.length > 0 && steps < 400) {
+    const curr = queue.shift(); steps++;
+    // Är denna tile intill fog?
+    let nearFog = false;
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nx = curr.x + dx, ny = curr.y + dy;
+      if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H && !col.grid[ny][nx].revealed)
+        { nearFog = true; break; }
+    }
+    if (nearFog && isWalkable(col.grid[curr.y][curr.x].type))
+      candidates.push(curr);
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nx = curr.x + dx, ny = curr.y + dy;
+      if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) continue;
+      const key = ny * GRID_W + nx;
+      if (visited.has(key)) continue;
+      if (!isWalkable(col.grid[ny][nx].type)) continue;
+      visited.add(key);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  if (candidates.length === 0) return null;
+  // Slumpa bland de 8 närmaste
+  candidates.sort((a, b) => (Math.abs(a.x - sx) + Math.abs(a.y - sy)) - (Math.abs(b.x - sx) + Math.abs(b.y - sy)));
+  const idx = Math.floor(Math.random() * Math.min(8, candidates.length));
+  return candidates[idx];
+}
+
+// Hitta närmaste tunnel-tile i riktning mot spelarens tap (fog-tap)
+function findScoutTarget(col, sx, sy, tapX, tapY) {
+  // BFS från spejarens pos, vikta mot tiles nära tapX/tapY-riktningen
+  const visited = new Set();
+  const queue = [{ x: sx, y: sy }];
+  visited.add(sy * GRID_W + sx);
+  let best = null, bestScore = Infinity;
+  let steps = 0;
+  while (queue.length > 0 && steps < 400) {
+    const curr = queue.shift(); steps++;
+    if (isWalkable(col.grid[curr.y][curr.x].type)) {
+      // Score: avstånd till tap-punkt
+      const dist = Math.abs(curr.x - tapX) + Math.abs(curr.y - tapY);
+      if (dist < bestScore) { bestScore = dist; best = curr; }
+    }
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nx = curr.x + dx, ny = curr.y + dy;
+      if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) continue;
+      const key = ny * GRID_W + nx;
+      if (visited.has(key)) continue;
+      if (!isWalkable(col.grid[ny][nx].type)) continue;
+      visited.add(key);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return best;
+}
+
 function tileColor(col, gx, gy) {
   const tile = col.grid[gy][gx];
   if (tile.type === "surface") return COL_SURFACE;
@@ -475,6 +573,7 @@ function saveGame(col, antEntities) {
     state: e.ant.state,
     carrying: e.ant.carrying,
     carrySand: e.ant.carrySand,
+    type: e.ant.type || "worker",
   }));
   const data = {
     grid: col.grid.map(row => row.map(t => ({
@@ -485,7 +584,7 @@ function saveGame(col, antEntities) {
     antCount: col.antCount, tunnelCount: col.tunnelCount,
     queenLevel: col.queenLevel, queenX: col.queenX, queenY: col.queenY,
     queenTimer: col.queenTimer, waterTimer: col.waterTimer,
-    dehydrated: col.dehydrated, eggsPaused: col.eggsPaused,
+    dehydrated: col.dehydrated, eggsPaused: col.eggsPaused, nextEggType: col.nextEggType,
     aphidFarms: col.aphidFarms,
     sandPiles: col.sandPiles, sandTotal: col.sandTotal,
     digPlan: col.digPlan,
@@ -546,7 +645,7 @@ scene("game", () => {
     colony.queenLevel = saved.queenLevel;
     colony.queenX = saved.queenX; colony.queenY = saved.queenY;
     colony.queenTimer = saved.queenTimer; colony.waterTimer = saved.waterTimer;
-    colony.dehydrated = saved.dehydrated; colony.eggsPaused = saved.eggsPaused || false;
+    colony.dehydrated = saved.dehydrated; colony.eggsPaused = saved.eggsPaused || false; colony.nextEggType = saved.nextEggType || "worker";
     colony.aphidFarms = saved.aphidFarms || [];
     colony.sandPiles = saved.sandPiles || []; colony.sandTotal = saved.sandTotal || 0;
     colony.digPlan = saved.digPlan || [];
@@ -590,27 +689,32 @@ scene("game", () => {
   // === MYROR ===
   const antEntities = [];
 
-  function spawnAnt(gx, gy) {
+  function spawnAnt(gx, gy, type = "worker") {
+    const isScout = type === "scout";
+    const col0 = isScout ? COL_SCOUT : COL_ANT;
     const ant = add([
-      circle(3), pos(gx * TILE + TILE / 2, gy * TILE + TILE / 2),
-      anchor("center"), color(COL_ANT[0], COL_ANT[1], COL_ANT[2]), z(10), "ant",
+      circle(isScout ? 2.5 : 3), pos(gx * TILE + TILE / 2, gy * TILE + TILE / 2),
+      anchor("center"), color(col0[0], col0[1], col0[2]), z(10), "ant",
       {
-        gridX: gx, gridY: gy, path: null, pathIdx: 0, speed: 60,
+        gridX: gx, gridY: gy, path: null, pathIdx: 0,
+        speed: isScout ? SCOUT_SPEED : 60,
         state: "idle", digTarget: null, replanTimer: 0,
         carrying: null,         // resurs
         carrySand: false,       // bär sand?
         resourceSource: null,   // {x,y} var resursen hämtades
+        type,                   // "worker" | "scout"
+        scoutTarget: null,      // {x,y} spelarens riktning (bara scout)
       },
     ]);
-    const head = add([circle(2), pos(ant.pos.x + 4, ant.pos.y - 2), anchor("center"),
-      color(COL_ANT[0] + 20, COL_ANT[1] + 15, COL_ANT[2] + 10), z(11)]);
+    const head = add([circle(isScout ? 1.5 : 2), pos(ant.pos.x + 4, ant.pos.y - 2), anchor("center"),
+      color(col0[0] + 20, col0[1] + 15, col0[2] + 10), z(11)]);
     antEntities.push({ ant, head });
     colony.antCount++;
     return ant;
   }
 
   if (saved && saved.ants) {
-    for (const a of saved.ants) spawnAnt(a.gx, a.gy);
+    for (const a of saved.ants) spawnAnt(a.gx, a.gy, a.type || "worker");
   } else {
     for (const [sx, sy] of [[QUEEN_X - 1, QUEEN_Y], [QUEEN_X + 1, QUEEN_Y], [QUEEN_X, QUEEN_Y + 1]])
       spawnAnt(sx, sy);
@@ -625,7 +729,9 @@ scene("game", () => {
 
   // === ÄGG ===
   function layEgg() {
-    const cost = EGG_COST.worker;
+    // Nivå-gate: scout kräver nivå 2+
+    const eggType = (colony.nextEggType === "scout" && colony.queenLevel >= 2) ? "scout" : "worker";
+    const cost = EGG_COST[eggType];
     if (colony.food < cost.food || colony.protein < cost.protein) return;
     const r = chamberRadius(colony);
     const spots = [];
@@ -642,15 +748,16 @@ scene("game", () => {
     if (spots.length === 0) return;
     colony.food -= cost.food; colony.protein -= cost.protein;
     const spot = spots[Math.floor(Math.random() * spots.length)];
+    const eggCol = eggType === "scout" ? COL_SCOUT_EGG : COL_EGG;
     const eggEntity = add([circle(2.5), pos(spot.x * TILE + TILE / 2, spot.y * TILE + TILE / 2),
-      anchor("center"), color(COL_EGG[0], COL_EGG[1], COL_EGG[2]), z(12), opacity(0.9)]);
-    colony.eggs.push({ x: spot.x, y: spot.y, age: 0, entity: eggEntity });
+      anchor("center"), color(eggCol[0], eggCol[1], eggCol[2]), z(12), opacity(0.9)]);
+    colony.eggs.push({ x: spot.x, y: spot.y, age: 0, entity: eggEntity, type: eggType });
   }
 
   function hatchEgg(egg) {
     if (egg.entity) destroy(egg.entity);
     colony.eggs = colony.eggs.filter(e => e !== egg);
-    spawnAnt(egg.x, egg.y);
+    spawnAnt(egg.x, egg.y, egg.type || "worker");
     for (let i = 0; i < 5; i++)
       add([circle(rand(1, 2)), pos(egg.x * TILE + TILE / 2 + rand(-8, 8), egg.y * TILE + TILE / 2 + rand(-8, 8)),
         color(COL_EGG[0], COL_EGG[1], COL_EGG[2]), opacity(0.9), z(20), lifespan(0.5, { fade: 0.3 }), move(rand(0, 360), rand(15, 40))]);
@@ -728,6 +835,10 @@ scene("game", () => {
 
     for (const entry of antEntities) {
       const ant = entry.ant;
+
+      // Spejare har egen logik
+      if (ant.type === "scout") { updateScout(ant, entry, elapsed); continue; }
+
       ant.replanTimer -= elapsed;
 
       // IDLE
@@ -886,6 +997,66 @@ scene("game", () => {
     else { const spd = antSpeed(ant) * elapsed; ant.pos.x += (dx / dist) * spd; ant.pos.y += (dy / dist) * spd; }
   }
 
+  // === SPEJARE ===
+  function updateScout(ant, entry, elapsed) {
+    // Sniffa varje steg (avslöja tiles runt sig)
+    const found = scoutSniff(colony, ant.gridX, ant.gridY);
+    for (const r of found) {
+      // Auto-skapa grävplan mot hittade resurser
+      if (colony.digPlan.length < maxDigPlans(colony) * 8) {
+        addDigPlan(r.x, r.y);
+        showToast(`Spejare: ${r.resource.label} (${r.x},${r.y})`);
+      }
+    }
+
+    ant.replanTimer -= elapsed;
+
+    // IDLE — välj mål
+    if (ant.state === "idle" && ant.replanTimer <= 0) {
+      let target = null;
+      if (ant.scoutTarget) {
+        // Spelaren har pekat — hitta närmaste tunnel i den riktningen
+        target = findScoutTarget(colony, ant.gridX, ant.gridY, ant.scoutTarget.x, ant.scoutTarget.y);
+        ant.scoutTarget = null;
+      } else {
+        // Auto-explore: vandra till fog-gränsen
+        target = findUnexploredTarget(colony, ant.gridX, ant.gridY);
+      }
+      if (target) {
+        const path = findPath(colony, ant.gridX, ant.gridY, target.x, target.y);
+        if (path && path.length > 0) {
+          ant.path = path; ant.pathIdx = 0; ant.state = "scouting";
+          ant.replanTimer = 6 + Math.random() * 4;
+        } else {
+          ant.replanTimer = 3 + Math.random() * 3;
+        }
+      } else {
+        // Inget att utforska — vandra
+        const wander = randomTunnelTile(colony);
+        if (wander) {
+          const path = findPath(colony, ant.gridX, ant.gridY, wander.x, wander.y);
+          if (path && path.length > 1) { ant.path = path; ant.pathIdx = 0; ant.state = "scouting"; }
+        }
+        ant.replanTimer = 4 + Math.random() * 4;
+      }
+    }
+
+    // SCOUTING — rörelse
+    if (ant.state === "scouting") {
+      if (ant.path && ant.pathIdx < ant.path.length) {
+        moveAnt(ant, elapsed);
+      } else {
+        ant.state = "idle"; ant.path = null; ant.replanTimer = 1 + Math.random() * 2;
+      }
+    }
+
+    // Visuellt — blå med puls
+    const pulse = Math.sin(time() * 4) * 0.1;
+    entry.ant.color = rgb(COL_SCOUT[0] + pulse * 30, COL_SCOUT[1] + pulse * 20, COL_SCOUT[2]);
+    if (entry.head) { entry.head.pos.x = ant.pos.x + 3; entry.head.pos.y = ant.pos.y - 2;
+      entry.head.color = rgb(COL_SCOUT[0] + 30, COL_SCOUT[1] + 20, COL_SCOUT[2] + 10); }
+  }
+
   // === BLADLÖSS & VATTEN & DROTTNING ===
   function updateAphids(elapsed) {
     for (const farm of colony.aphidFarms) {
@@ -1020,7 +1191,8 @@ scene("game", () => {
           if (spot) colony.aphidFarms.push({ x: spot.x, y: spot.y, timer: farm.timer });
         }
 
-        showToast(`${newLvl.label}! Ägg var ${newLvl.eggInterval}:e sek`);
+        const unlockMsg = colony.queenLevel === 2 ? " Spejare upplåsta!" : "";
+        showToast(`${newLvl.label}! Ägg var ${newLvl.eggInterval}:e sek${unlockMsg}`);
       }
       return; // Inga ägg under flytt
     }
@@ -1070,10 +1242,29 @@ scene("game", () => {
             showToast(`Niv ${next.level}: ${parts.join(" + ")}`);
           }
         }
-        // Prioritet 3: Pausa/starta ägg (tap på kammare, inte drottningen)
+        // Prioritet 3: Kammare-tap — cykla äggtyp (nivå 2+) eller pausa
         else if (colony.grid[gy][gx].type === "chamber" && Math.abs(gx - colony.queenX) <= chamberRadius(colony) && Math.abs(gy - colony.queenY) <= chamberRadius(colony)) {
-          colony.eggsPaused = !colony.eggsPaused;
-          showToast(colony.eggsPaused ? "Ägg pausade" : "Ägg igång");
+          const timeSinceLast2 = (now - lastTapTime) * 1000;
+          const sameArea2 = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
+          if (timeSinceLast2 < DOUBLE_TAP_MS && sameArea2) {
+            // Dubbeltap = pausa/starta ägg
+            colony.eggsPaused = !colony.eggsPaused;
+            showToast(colony.eggsPaused ? "Ägg pausade" : "Ägg igång");
+            lastTapTime = 0;
+          } else if (colony.queenLevel >= 2) {
+            // Singeltap nivå 2+ = cykla typ
+            const types = ["worker", "scout"];
+            const idx = types.indexOf(colony.nextEggType);
+            colony.nextEggType = types[(idx + 1) % types.length];
+            const labels = { worker: "Arbetare", scout: "Spejare" };
+            const cost = EGG_COST[colony.nextEggType];
+            showToast(`Nästa: ${labels[colony.nextEggType]} (${cost.food}S ${cost.protein}P)`);
+            lastTapTime = now; lastTapGx = gx; lastTapGy = gy;
+          } else {
+            // Singeltap nivå 1 = pausa
+            colony.eggsPaused = !colony.eggsPaused;
+            showToast(colony.eggsPaused ? "Ägg pausade" : "Ägg igång");
+          }
         }
         // Avbryt grävplan
         else if (colony.digPlan.some(d => d.x === gx && d.y === gy)) {
@@ -1083,10 +1274,28 @@ scene("game", () => {
         else {
           const tile = colony.grid[gy][gx];
           if ((tile.type === "dirt" || !tile.revealed) && gy > SURFACE_Y) {
-            const timeSinceLast = (now - lastTapTime) * 1000;
-            const sameArea = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
-            if (timeSinceLast < DOUBLE_TAP_MS && sameArea) { addDigPlan(gx, gy); lastTapTime = 0; }
-            else { lastTapTime = now; lastTapGx = gx; lastTapGy = gy; }
+            // Single-tap på fog: skicka spejare om tillgänglig
+            if (!tile.revealed) {
+              const scout = antEntities.find(e => e.ant.type === "scout" && (e.ant.state === "idle" || e.ant.state === "scouting"));
+              if (scout) {
+                scout.ant.scoutTarget = { x: gx, y: gy };
+                scout.ant.state = "idle"; scout.ant.path = null; scout.ant.replanTimer = 0;
+                showToast("Spejare skickad!");
+                lastTapTime = 0; // förhindra dubbeltap-dig
+              } else {
+                // Ingen spejare — fallback till dubbeltap-grävplan
+                const timeSinceLast = (now - lastTapTime) * 1000;
+                const sameArea = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
+                if (timeSinceLast < DOUBLE_TAP_MS && sameArea) { addDigPlan(gx, gy); lastTapTime = 0; }
+                else { lastTapTime = now; lastTapGx = gx; lastTapGy = gy; }
+              }
+            } else {
+              // Revealed dirt — normal dubbeltap-grävplan
+              const timeSinceLast = (now - lastTapTime) * 1000;
+              const sameArea = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
+              if (timeSinceLast < DOUBLE_TAP_MS && sameArea) { addDigPlan(gx, gy); lastTapTime = 0; }
+              else { lastTapTime = now; lastTapGx = gx; lastTapGy = gy; }
+            }
           }
         }
       }
@@ -1134,10 +1343,12 @@ scene("game", () => {
 
     const score = colony.antCount * 10 + colony.tunnelCount * 2;
     hudScore.text = `Koloni: ${score}`;
-    hudAnts.text = `Myror: ${colony.antCount}`;
+    const scoutCount = antEntities.filter(e => e.ant.type === "scout").length;
+    hudAnts.text = scoutCount > 0 ? `Myror: ${colony.antCount} (${scoutCount}S)` : `Myror: ${colony.antCount}`;
     const readyEggs = colony.eggs.filter(e => e.age >= EGG_MIN_HATCH).length;
     const pauseTag = colony.eggsPaused ? " PAUS" : "";
-    const lvlLabel = colony.queenMoving ? "Flyttar..." : `Niv ${colony.queenLevel}${pauseTag}`;
+    const typeTag = colony.queenLevel >= 2 ? (colony.nextEggType === "scout" ? " [Spej]" : " [Arb]") : "";
+    const lvlLabel = colony.queenMoving ? "Flyttar..." : `Niv ${colony.queenLevel}${pauseTag}${typeTag}`;
     hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} | Ägg: ${readyEggs}/${colony.eggs.length}` : lvlLabel;
     const sec = Math.floor(time() - colony.startTime);
     hudTime.text = `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
@@ -1260,6 +1471,19 @@ scene("game", () => {
         color: rgb(COL_SAND_PILE[0] + 20, COL_SAND_PILE[1] + 15, COL_SAND_PILE[2] + 10),
         opacity: 0.3,
       });
+    }
+
+    // Spejar-doftsinne visuell effekt (pulserande ring)
+    for (const entry of antEntities) {
+      if (entry.ant.type === "scout" && entry.ant.state === "scouting") {
+        const pulse = Math.sin(time() * 3) * 0.15 + 0.2;
+        drawCircle({
+          pos: vec2(entry.ant.pos.x, entry.ant.pos.y),
+          radius: SCOUT_SNIFF_RADIUS * TILE * 0.6,
+          color: rgb(COL_SCOUT[0], COL_SCOUT[1], COL_SCOUT[2]),
+          opacity: pulse * 0.15,
+        });
+      }
     }
   });
 });
