@@ -218,8 +218,18 @@ function completeDig(col, gx, gy) {
   if (col.grid[gy][gx].resource) showToastGlobal(col.grid[gy][gx].resource.label);
 }
 
-// Tunnelregel: 2×2
+// Tunnelregel: 2×2 — räknar öppen + under grävning som "öppen"
+function tileIsOpen(col, x, y) {
+  if (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) return false;
+  const t = col.grid[y][x];
+  if (t.type === "tunnel" || t.type === "chamber" || t.type === "surface") return true;
+  // Halvgrävd (i en grävplan) räknas som potentiellt öppen
+  if (t.type === "dirt" && t.grains < t.grainsMax) return true;
+  return false;
+}
+
 function wouldCreate2x2(col, gx, gy) {
+  // Kolla alla 4 möjliga 2×2-block som inkluderar (gx,gy)
   for (const [dx, dy] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
     const bx = gx + dx, by = gy + dy;
     let openCount = 0, chamberCount = 0;
@@ -227,10 +237,9 @@ function wouldCreate2x2(col, gx, gy) {
       for (let cx = 0; cx < 2; cx++) {
         const tx = bx + cx, ty = by + cy;
         if (tx < 0 || tx >= GRID_W || ty < 0 || ty >= GRID_H) continue;
-        const tile = col.grid[ty][tx];
         if (tx === gx && ty === gy) { openCount++; continue; }
-        if (tile.type === "tunnel" || tile.type === "chamber" || tile.type === "surface") openCount++;
-        if (tile.type === "chamber") chamberCount++;
+        if (tileIsOpen(col, tx, ty)) openCount++;
+        if (col.grid[ty][tx].type === "chamber") chamberCount++;
       }
     if (openCount >= 4 && chamberCount < 3) return true;
   }
@@ -242,15 +251,10 @@ function canDigAt(col, gx, gy) {
   if (gy === SURFACE_Y) return false;
   const tile = col.grid[gy][gx];
   if (tile.type !== "dirt") return false;
-  // Nära ytan (rad 1-2): max var 3:e ruta, inte intill ingången
-  if (gy <= 2) {
-    if (Math.abs(gx - ENTRANCE_X) <= 1) return false; // skydda runt ingången
-    // Kolla om det redan finns en tunnel inom 2 rutor horisontellt
-    for (let dx = -2; dx <= 2; dx++) {
-      if (dx === 0) continue;
-      const nx = gx + dx;
-      if (nx >= 0 && nx < GRID_W && col.grid[gy][nx].type === "tunnel") return false;
-    }
+  // Nära ytan (rad 1-3): mycket begränsat grävande
+  if (gy <= 3) {
+    // Bara ingångstunneln och rakt nedåt tillåts
+    if (gx !== ENTRANCE_X) return false; // bara rakt under ingången
   }
   if (wouldCreate2x2(col, gx, gy)) return false;
   return true;
@@ -421,6 +425,26 @@ function addSandToPile(col, x) {
   }
   pile.amount++;
   col.sandTotal++;
+}
+
+// === BLADLÖSS — placeras runt drottningkammaren ===
+function findAphidSpot(col) {
+  // Rutor runt drottningkammaren (de 8 runt 3×3-kammaren = ytterring)
+  const spots = [];
+  for (let dy = -2; dy <= 2; dy++)
+    for (let dx = -2; dx <= 2; dx++) {
+      // Skippa inre kammaren (redan occupied av drottning/ägg)
+      if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) continue;
+      // Bara kanten av 5×5
+      if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue;
+      const fx = QUEEN_X + dx, fy = QUEEN_Y + dy;
+      if (fx < 0 || fx >= GRID_W || fy < 0 || fy >= GRID_H) continue;
+      const tile = col.grid[fy][fx];
+      if (tile.type !== "tunnel" && tile.type !== "chamber") continue;
+      if (col.aphidFarms.some(f => f.x === fx && f.y === fy)) continue;
+      spots.push({ x: fx, y: fy });
+    }
+  return spots.length > 0 ? spots[0] : null;
 }
 
 // === SCENER ===
@@ -724,9 +748,15 @@ scene("game", () => {
           if (ant.carrying) {
             const res = ant.carrying;
             if (res.kind === "honungsdagg") {
-              if (!colony.aphidFarms.some(f => f.x === ant.gridX && f.y === ant.gridY))
-                colony.aphidFarms.push({ x: ant.gridX, y: ant.gridY, timer: 0 });
-              showToast("Bladlöss-farm!");
+              // Placera bladlöss runt drottningkammaren
+              const farmSpot = findAphidSpot(colony);
+              if (farmSpot) {
+                colony.aphidFarms.push({ x: farmSpot.x, y: farmSpot.y, timer: 0 });
+                showToast(`Bladlöss-farm! (${colony.aphidFarms.length}/8)`);
+              } else {
+                showToast("Ingen plats för fler bladlöss!");
+                colony.food += 3; // kompensation
+              }
             } else { colony.food += res.food; colony.protein += res.protein; colony.water += res.water; }
             add([text(`+${res.label}`, { size: 10 }), pos(ant.pos.x, ant.pos.y - 10),
               anchor("center"), color(res.color[0], res.color[1], res.color[2]),
