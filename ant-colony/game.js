@@ -1202,7 +1202,8 @@ scene("game", () => {
         const tx = target.x * TILE + TILE / 2, ty = target.y * TILE + TILE / 2;
         const dx = tx - queen.pos.x, dy = ty - queen.pos.y;
         const dist = Math.hypot(dx, dy);
-        if (dist < 2) {
+        if (dist < 2 || isNaN(dist)) {
+          queen.pos.x = tx; queen.pos.y = ty;
           colony.queenMoveIdx++;
         } else {
           queen.pos.x += (dx / dist) * moveSpeed * elapsed;
@@ -1212,8 +1213,12 @@ scene("game", () => {
         crown.pos.y = queen.pos.y - 7 + Math.sin(queenPulse) * 0.8;
       }
 
+      // Timeout-skydd: om flytten tar > 60s, tvinga klar
+      if (colony.queenMoveProgress > 60) colony.queenMoveIdx = colony.queenMovePath.length;
+
       if (colony.queenMoveIdx >= colony.queenMovePath.length) {
         // Flytt klar!
+        try {
         colony.queenMoving = false;
         colony.queenLevel++;
         const newLvl = queenLevelData();
@@ -1261,6 +1266,7 @@ scene("game", () => {
 
         const unlockMsg = colony.queenLevel === 2 ? " Spejare upplåsta!" : "";
         showToast(`${newLvl.label}! Ägg var ${newLvl.eggInterval}:e sek${unlockMsg}`);
+        } catch(e) { console.error("Queen move error:", e); colony.queenMoving = false; }
       }
       return; // Inga ägg under flytt
     }
