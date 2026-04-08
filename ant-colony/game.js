@@ -59,6 +59,14 @@ function totalWeight(table) { return table.reduce((s, r) => s + r.weight, 0); }
 
 const EGG_COST = { worker: { food: 3, protein: 1 }, soldier: { food: 3, protein: 3 }, scout: { food: 4, protein: 1 } };
 
+// Drottning-nivåer
+const QUEEN_LEVELS = [
+  { level: 1, minDepth: 0,  cost: null,                    eggInterval: 15, label: "Nivå 1" },
+  { level: 2, minDepth: 15, cost: { food: 20, protein: 10 }, eggInterval: 10, label: "Niv 2 — Snabbare" },
+  { level: 3, minDepth: 40, cost: { food: 50, protein: 30 }, eggInterval: 7,  label: "Niv 3 — Soldater" },
+  { level: 4, minDepth: 45, cost: { food: 80, protein: 50 }, eggInterval: 5,  label: "Niv 4 — Spejare" },
+];
+
 // Färger
 const COL_FOG = [15, 10, 8];
 const COL_DIRT = [101, 67, 33];
@@ -104,8 +112,16 @@ function createColony() {
     aphidFarms: [],
     waterTimer: WATER_USE_INTERVAL,
     dehydrated: false,
-    sandPiles: [],       // [{x, amount}] högar på ytan
+    sandPiles: [],
     sandTotal: 0,
+    queenLevel: 1,
+    queenMoving: false,  // true när drottningen flyttas
+    queenMoveProgress: 0,
+    queenTargetX: 0,
+    queenTargetY: 0,
+    queenX: QUEEN_X,
+    queenY: QUEEN_Y,
+    eggsPaused: false,
   };
 }
 
@@ -437,7 +453,7 @@ function findAphidSpot(col) {
       if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) continue;
       // Bara kanten av 5×5
       if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue;
-      const fx = QUEEN_X + dx, fy = QUEEN_Y + dy;
+      const fx = col.queenX + dx, fy = col.queenY + dy;
       if (fx < 0 || fx >= GRID_W || fy < 0 || fy >= GRID_H) continue;
       const tile = col.grid[fy][fx];
       if (tile.type !== "tunnel" && tile.type !== "chamber") continue;
@@ -541,7 +557,7 @@ scene("game", () => {
     for (let dy = -1; dy <= 1; dy++)
       for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dy === 0) continue;
-        const ex = QUEEN_X + dx, ey = QUEEN_Y + dy;
+        const ex = colony.queenX + dx, ey = colony.queenY + dy;
         if (!colony.eggs.some(e => e.x === ex && e.y === ey)) spots.push({ x: ex, y: ey });
       }
     if (spots.length === 0) return;
@@ -594,21 +610,29 @@ scene("game", () => {
   }
 
   // Hitta närmaste grävbar ruta i planen som har intilliggande tunnel
-  function findDiggableInPlan() {
-    for (let i = 0; i < colony.digPlan.length; i++) {
+  // Rensa klara rutor och hitta närmaste grävbara ruta i planen
+  function findDiggableInPlan(antX, antY) {
+    let best = null, bestDist = Infinity;
+    for (let i = colony.digPlan.length - 1; i >= 0; i--) {
       const p = colony.digPlan[i];
       const tile = colony.grid[p.y][p.x];
       if (tile.type !== "dirt" || tile.grains <= 0) {
-        colony.digPlan.splice(i, 1); i--; continue; // redan grävd, ta bort
+        colony.digPlan.splice(i, 1); continue;
       }
       // Kolla att nåbar (intill tunnel)
+      let reachable = false;
       for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
         const nx = p.x + dx, ny = p.y + dy;
-        if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H && isWalkable(colony.grid[ny][nx].type))
-          return p;
+        if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H && isWalkable(colony.grid[ny][nx].type)) {
+          reachable = true; break;
+        }
+      }
+      if (reachable) {
+        const dist = Math.abs(p.x - antX) + Math.abs(p.y - antY);
+        if (dist < bestDist) { bestDist = dist; best = p; }
       }
     }
-    return null;
+    return best;
   }
 
   // === MYRLOGIK ===
@@ -631,7 +655,7 @@ scene("game", () => {
       if (ant.state === "idle" && ant.replanTimer <= 0) {
         // Prioritet 1: grävplan (om det finns plats)
         const canAssignDig = (diggingCount + newDiggers) < maxDiggers;
-        const digTarget = canAssignDig ? findDiggableInPlan() : null;
+        const digTarget = canAssignDig ? findDiggableInPlan(ant.gridX, ant.gridY) : null;
         if (digTarget && !ant.carrying && !ant.carrySand) {
           // Hitta intilliggande tunnel att stå på
           let bestPath = null;
@@ -734,7 +758,7 @@ scene("game", () => {
             res.tripsLeft--;
             if (res.tripsLeft <= 0) tile.resource = null;
             ant.state = "returning";
-            const path = findPath(colony, ant.gridX, ant.gridY, QUEEN_X, QUEEN_Y);
+            const path = findPath(colony, ant.gridX, ant.gridY, colony.queenX, colony.queenY);
             if (path) { ant.path = path; ant.pathIdx = 0; }
             else { ant.state = "idle"; ant.carrying = null; ant.replanTimer = 1; }
           } else { ant.state = "idle"; ant.path = null; ant.replanTimer = 0.5; }
@@ -802,11 +826,129 @@ scene("game", () => {
     if (colony.water > 0) colony.dehydrated = false;
   }
   colony.queenTimer = colony.queenInterval;
+
+  function queenLevelData() { return QUEEN_LEVELS[colony.queenLevel - 1]; }
+  function nextQueenLevel() { return colony.queenLevel < QUEEN_LEVELS.length ? QUEEN_LEVELS[colony.queenLevel] : null; }
+
+  function canUpgradeQueen() {
+    const next = nextQueenLevel();
+    if (!next) return false;
+    if (colony.food < next.cost.food || colony.protein < next.cost.protein) return false;
+    if (colony.queenMoving) return false;
+    // Kolla att det finns grävd tunnel på rätt djup
+    // Hitta en plats för ny kammare
+    return findNewChamberPos(next.minDepth) !== null;
+  }
+
+  function findNewChamberPos(minDepth) {
+    // Hitta en tunnel-ruta på rätt djup med plats för 3×3 runt sig
+    // (omgivningen behöver INTE vara grävd — kammaren skapas automatiskt)
+    for (let y = minDepth; y < Math.min(minDepth + 10, GRID_H - 2); y++) {
+      for (let x = 2; x < GRID_W - 2; x++) {
+        const t = colony.grid[y][x];
+        if (t.type !== "tunnel" && t.type !== "chamber") continue; // Själva rutan måste vara nåbar
+        // Kolla att 3×3 ryms (inga rock)
+        let hasRock = false;
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const ty = y + dy, tx = x + dx;
+            if (ty < 1 || ty >= GRID_H || tx < 0 || tx >= GRID_W) { hasRock = true; continue; }
+            if (colony.grid[ty][tx].type === "rock") hasRock = true;
+          }
+        if (!hasRock) return { x, y };
+      }
+    }
+    return null;
+  }
+
+  function startQueenMove() {
+    const next = nextQueenLevel();
+    if (!next || !canUpgradeQueen()) return;
+    const newPos = findNewChamberPos(next.minDepth);
+    if (!newPos) return;
+
+    // Pathfind genom tunnlar
+    const movePath = findPath(colony, colony.queenX, colony.queenY, newPos.x, newPos.y);
+    if (!movePath) { showToast("Ingen väg dit!"); return; }
+
+    colony.food -= next.cost.food;
+    colony.protein -= next.cost.protein;
+    colony.queenMoving = true;
+    colony.queenMovePath = movePath;
+    colony.queenMoveIdx = 0;
+    colony.queenTargetX = newPos.x;
+    colony.queenTargetY = newPos.y;
+    showToast(`Drottningen bärs till djup ${newPos.y}...`);
+  }
+
+  // Upgrade-overlay state
+  let showUpgradeUI = false;
+
   function updateQueen(elapsed) {
-    colony.queenTimer -= elapsed; queenPulse += elapsed * 2;
+    const lvl = queenLevelData();
+    colony.queenInterval = lvl.eggInterval;
+
+    queenPulse += elapsed * 2;
     queen.radius = 5 + Math.sin(queenPulse) * 0.8;
     crown.pos.y = queen.pos.y - 7 + Math.sin(queenPulse) * 0.8;
-    if (colony.queenTimer <= 0) { colony.queenTimer = colony.queenInterval; layEgg(); }
+
+    if (colony.queenMoving && colony.queenMovePath) {
+      // Flytt pågår — drottningen bärs längs tunnlar
+      colony.queenMoveProgress += elapsed;
+      const moveSpeed = 25; // pixlar/sek (långsamt, bärs)
+
+      if (colony.queenMoveIdx < colony.queenMovePath.length) {
+        const target = colony.queenMovePath[colony.queenMoveIdx];
+        const tx = target.x * TILE + TILE / 2, ty = target.y * TILE + TILE / 2;
+        const dx = tx - queen.pos.x, dy = ty - queen.pos.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 2) {
+          colony.queenMoveIdx++;
+        } else {
+          queen.pos.x += (dx / dist) * moveSpeed * elapsed;
+          queen.pos.y += (dy / dist) * moveSpeed * elapsed;
+        }
+        crown.pos.x = queen.pos.x;
+        crown.pos.y = queen.pos.y - 7 + Math.sin(queenPulse) * 0.8;
+      }
+
+      if (colony.queenMoveIdx >= colony.queenMovePath.length) {
+        // Flytt klar!
+        colony.queenMoving = false;
+        colony.queenLevel++;
+        const newLvl = queenLevelData();
+
+        // Uppdatera QUEEN_X/Y (de är const, så vi sätter via alias)
+        // Skapa ny kammare
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            colony.grid[colony.queenTargetY + dy][colony.queenTargetX + dx] = {
+              type: "chamber", revealed: true, rockVariant: 0, resource: null, grains: 0, grainsMax: 0
+            };
+
+        // Flytta ägg till nya kammaren (ta bort gamla)
+        for (const egg of colony.eggs) { if (egg.entity) destroy(egg.entity); }
+        colony.eggs = [];
+
+        queen.pos.x = colony.queenTargetX * TILE + TILE / 2;
+        queen.pos.y = colony.queenTargetY * TILE + TILE / 2;
+        crown.pos.x = queen.pos.x;
+        crown.pos.y = queen.pos.y - 7;
+
+        // Uppdatera globala queen-pos (hacky men nödvändigt)
+        colony.queenX = colony.queenTargetX;
+        colony.queenY = colony.queenTargetY;
+
+        showToast(`${newLvl.label}! Ägg var ${newLvl.eggInterval}:e sek`);
+      }
+      return; // Inga ägg under flytt
+    }
+
+    colony.queenTimer -= elapsed;
+    if (colony.queenTimer <= 0) {
+      colony.queenTimer = colony.queenInterval;
+      if (!colony.eggsPaused) layEgg();
+    }
   }
 
   // === KAMERA ===
@@ -828,9 +970,31 @@ scene("game", () => {
       const world = screenToWorld(mousePos().x, mousePos().y);
       const gx = Math.floor(world.x / TILE), gy = Math.floor(world.y / TILE);
       if (gx >= 0 && gx < GRID_W && gy >= 0 && gy < GRID_H) {
+        // Prioritet 1: Ägg (singeltap)
         const egg = colony.eggs.find(e => e.x === gx && e.y === gy && e.age >= EGG_MIN_HATCH);
         if (egg) { hatchEgg(egg); }
-        // Avbryt grävplan: singeltap på planerad ruta
+        // Prioritet 2: Drottning (singeltap) — bara exakt drottningens ruta
+        else if (gx === colony.queenX && gy === colony.queenY && !colony.queenMoving) {
+          const next = nextQueenLevel();
+          if (!next) {
+            showToast("Max-nivå!");
+          } else if (canUpgradeQueen()) {
+            startQueenMove();
+          } else {
+            const parts = [];
+            if (colony.food < next.cost.food) parts.push(`${next.cost.food}S`);
+            if (colony.protein < next.cost.protein) parts.push(`${next.cost.protein}P`);
+            const depthOk = findNewChamberPos(next.minDepth);
+            if (!depthOk) parts.push(`djup ${next.minDepth}+`);
+            showToast(`Niv ${next.level}: ${parts.join(" + ")}`);
+          }
+        }
+        // Prioritet 3: Pausa/starta ägg (tap på kammare, inte drottningen)
+        else if (colony.grid[gy][gx].type === "chamber" && Math.abs(gx - colony.queenX) <= 1 && Math.abs(gy - colony.queenY) <= 1) {
+          colony.eggsPaused = !colony.eggsPaused;
+          showToast(colony.eggsPaused ? "Ägg pausade" : "Ägg igång");
+        }
+        // Avbryt grävplan
         else if (colony.digPlan.some(d => d.x === gx && d.y === gy)) {
           colony.digPlan = colony.digPlan.filter(d => d.x !== gx && d.y !== gy);
           showToast("Grävplan borttagen");
@@ -871,9 +1035,9 @@ scene("game", () => {
   zoomOutBtn.onClick(() => { zoomLevel = Math.max(ZOOM_MIN, zoomLevel - ZOOM_STEP); });
   const homeBtn = add([rect(50, 28, { radius: 4 }), pos(w - 60, 4), fixed(), color(80, 60, 40), opacity(0.7), z(101), area()]);
   add([text("Hem", { size: 14 }), pos(w - 35, 10), fixed(), anchor("center"), color(WHITE), z(102)]);
-  homeBtn.onClick(() => { camX = QUEEN_X * TILE + TILE / 2; camY = QUEEN_Y * TILE + TILE / 2; zoomLevel = ZOOM_DEFAULT; });
+  homeBtn.onClick(() => { camX = colony.queenX * TILE + TILE / 2; camY = colony.queenY * TILE + TILE / 2; zoomLevel = ZOOM_DEFAULT; });
 
-  const toastLabel = add([text("", { size: 14 }), pos(center().x, height() - 40), fixed(), anchor("center"), color(255, 200, 80), opacity(0), z(103)]);
+  const toastLabel = add([text("", { size: 12, width: w - 20 }), pos(w / 2, height() - 40), fixed(), anchor("center"), color(255, 200, 80), opacity(0), z(103)]);
   let hoverGx = -1, hoverGy = -1;
 
   // === MAIN LOOP ===
@@ -886,7 +1050,9 @@ scene("game", () => {
     hudScore.text = `Koloni: ${score}`;
     hudAnts.text = `Myror: ${colony.antCount}`;
     const readyEggs = colony.eggs.filter(e => e.age >= EGG_MIN_HATCH).length;
-    hudEggs.text = colony.eggs.length > 0 ? `Ägg: ${readyEggs}/${colony.eggs.length}` : "";
+    const pauseTag = colony.eggsPaused ? " [PAUS]" : "";
+    const lvlLabel = colony.queenMoving ? "Flyttar..." : `Niv ${colony.queenLevel}${pauseTag}`;
+    hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} | Ägg: ${readyEggs}/${colony.eggs.length}` : lvlLabel;
     const sec = Math.floor(time() - colony.startTime);
     hudTime.text = `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
     hudSugar.text = `Socker: ${colony.food}`;
