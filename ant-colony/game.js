@@ -1195,7 +1195,7 @@ scene("game", () => {
     if (colony.queenMoving && colony.queenMovePath) {
       // Flytt pågår — drottningen bärs längs tunnlar
       colony.queenMoveProgress += elapsed;
-      const moveSpeed = 18; // pixlar/sek (långsamt — bärs av myror)
+      const moveSpeed = 80; // pixlar/sek
 
       if (colony.queenMoveIdx < colony.queenMovePath.length) {
         const target = colony.queenMovePath[colony.queenMoveIdx];
@@ -1450,7 +1450,7 @@ scene("game", () => {
     // Auto-save var 10:e sekund
     colony.elapsed = time() - colony.startTime;
     colony._saveTimer = (colony._saveTimer || 0) + elapsed;
-    if (colony._saveTimer >= 10) { colony._saveTimer = 0; saveGame(colony, antEntities); }
+    if (colony._saveTimer >= 10 && !colony.queenMoving) { colony._saveTimer = 0; saveGame(colony, antEntities); }
 
     const score = colony.antCount * 10 + colony.tunnelCount * 2;
     hudScore.text = `Koloni: ${score}`;
