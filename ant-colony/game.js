@@ -637,28 +637,27 @@ scene("menu", () => {
     pos(center().x, center().y + 45), anchor("center"), color(WHITE), opacity(0.6)]);
 
   if (hasSave()) {
-    add([text("Tryck for att fortsatta", { size: 20 }),
-      pos(center().x, center().y + 90), anchor("center"), color(180, 255, 160), opacity(0.8)]);
-    add([text("(dubbelklicka for nytt spel)", { size: 14 }),
-      pos(center().x, center().y + 120), anchor("center"), color(WHITE), opacity(0.4)]);
-    let menuTapTime = 0;
-    let menuTimer = null;
-    onClick(() => {
-      const now = time();
-      if ((now - menuTapTime) < 0.4) {
-        // Dubbeltap = nytt spel
-        if (menuTimer) { menuTimer.cancel(); menuTimer = null; }
-        clearSave(); go("game");
-      } else {
-        // Vänta kort för att se om dubbeltap kommer
-        menuTapTime = now;
-        menuTimer = wait(0.45, () => go("game")); // fortsätt om inget mer tap
-      }
-    });
+    const btnW = 200, btnH = 44, gap = 16;
+    const btnY1 = center().y + 80, btnY2 = btnY1 + btnH + gap;
+    // Fortsätt-knapp
+    const contBtn = add([rect(btnW, btnH, { radius: 8 }), pos(center().x - btnW / 2, btnY1),
+      color(40, 100, 40), opacity(0.85), z(10), area()]);
+    add([text("Fortsätt", { size: 20 }), pos(center().x, btnY1 + btnH / 2),
+      anchor("center"), color(180, 255, 160), z(11)]);
+    contBtn.onClick(() => go("game"));
+    // Nytt spel-knapp
+    const newBtn = add([rect(btnW, btnH, { radius: 8 }), pos(center().x - btnW / 2, btnY2),
+      color(80, 40, 30), opacity(0.85), z(10), area()]);
+    add([text("Nytt spel", { size: 20 }), pos(center().x, btnY2 + btnH / 2),
+      anchor("center"), color(255, 180, 140), z(11)]);
+    newBtn.onClick(() => { clearSave(); go("game"); });
   } else {
-    add([text("Tryck for att borja", { size: 20 }),
-      pos(center().x, center().y + 100), anchor("center"), color(WHITE), opacity(0.5)]);
-    onClick(() => go("game"));
+    const btnW = 200, btnH = 44;
+    const startBtn = add([rect(btnW, btnH, { radius: 8 }), pos(center().x - btnW / 2, center().y + 80),
+      color(40, 100, 40), opacity(0.85), z(10), area()]);
+    add([text("Starta", { size: 20 }), pos(center().x, center().y + 80 + btnH / 2),
+      anchor("center"), color(180, 255, 160), z(11)]);
+    startBtn.onClick(() => go("game"));
   }
   onKeyPress("space", () => go("game"));
 });
