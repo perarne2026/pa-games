@@ -695,7 +695,7 @@ scene("game", () => {
           const path = findPath(colony, ant.gridX, ant.gridY, target.x, target.y);
           if (path && path.length > 1) { ant.path = path; ant.pathIdx = 0; ant.state = "walking"; }
         }
-        ant.replanTimer = 2 + Math.random() * 3;
+        ant.replanTimer = 3 + Math.random() * 4;
       }
 
       // WALKING
@@ -750,7 +750,7 @@ scene("game", () => {
           add([circle(rand(1, 2)), pos(ant.pos.x + rand(-6, 6), ant.pos.y + rand(-4, 4)),
             color(COL_SAND_PILE[0], COL_SAND_PILE[1], COL_SAND_PILE[2]),
             opacity(0.8), z(5), lifespan(0.5, { fade: 0.3 }), move(DOWN, 10)]);
-          ant.state = "idle"; ant.path = null; ant.replanTimer = 0.2;
+          ant.state = "idle"; ant.path = null; ant.replanTimer = 0.8;
         }
       }
 
@@ -849,20 +849,15 @@ scene("game", () => {
   }
 
   function findNewChamberPos(minDepth) {
-    const nextLvl = nextQueenLevel();
-    const r = nextLvl ? nextLvl.chamberR : 1;
-    for (let y = minDepth; y < Math.min(minDepth + 10, GRID_H - r); y++) {
-      for (let x = r; x < GRID_W - r; x++) {
+    // Hitta en tunnel-ruta på rätt djup. Kammaren skapas automatiskt
+    // (sten och dirt rensas). Bara kravet: själva rutan är nåbar.
+    for (let y = minDepth; y < Math.min(minDepth + 15, GRID_H - 3); y++) {
+      for (let x = 3; x < GRID_W - 3; x++) {
         const t = colony.grid[y][x];
         if (t.type !== "tunnel" && t.type !== "chamber") continue;
-        let hasRock = false;
-        for (let dy = -r; dy <= r; dy++)
-          for (let dx = -r; dx <= r; dx++) {
-            const ty = y + dy, tx = x + dx;
-            if (ty < 1 || ty >= GRID_H || tx < 0 || tx >= GRID_W) { hasRock = true; continue; }
-            if (colony.grid[ty][tx].type === "rock") hasRock = true;
-          }
-        if (!hasRock) return { x, y };
+        // Kolla att rutan inte är utanför kanten
+        if (y < 2 || y >= GRID_H - 2 || x < 2 || x >= GRID_W - 2) continue;
+        return { x, y };
       }
     }
     return null;
