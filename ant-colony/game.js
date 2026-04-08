@@ -642,10 +642,18 @@ scene("menu", () => {
     add([text("(dubbelklicka for nytt spel)", { size: 14 }),
       pos(center().x, center().y + 120), anchor("center"), color(WHITE), opacity(0.4)]);
     let menuTapTime = 0;
+    let menuTimer = null;
     onClick(() => {
       const now = time();
-      if ((now - menuTapTime) < 0.4) { clearSave(); go("game"); } // dubbelklick = nytt
-      else { menuTapTime = now; go("game"); } // singel = fortsätt
+      if ((now - menuTapTime) < 0.4) {
+        // Dubbeltap = nytt spel
+        if (menuTimer) { menuTimer.cancel(); menuTimer = null; }
+        clearSave(); go("game");
+      } else {
+        // Vänta kort för att se om dubbeltap kommer
+        menuTapTime = now;
+        menuTimer = wait(0.45, () => go("game")); // fortsätt om inget mer tap
+      }
     });
   } else {
     add([text("Tryck for att borja", { size: 20 }),
