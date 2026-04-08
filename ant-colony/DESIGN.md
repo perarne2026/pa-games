@@ -15,10 +15,33 @@ Top-down 2D, mobilfokus, svenska.
 - **Pinch** = zooma in/ut (+ knappar i hörnet)
 - **Hem-knapp** = centrera på drottningen
 
-## Kärnan: Grävplan-systemet
-Spelaren tappar på en ruta → systemet beräknar kortaste grävvägen dit från närmaste tunnel → rutor markeras med gul ram → lediga myror tilldelas automatiskt och gräver parallellt.
+## Kartlayout — vertikal
+Kartan är vertikal (30 bred × 50 djup). Ytan är överst.
 
-**Max grävdistans = antal myror × 3.** Fler myror = längre räckvidd = snabbare expansion.
+```
+Rad 0:    ~~~ himmel/markyta ~~~
+Rad 1:    ingångshål (öppning till ytan)
+Rad 2-4:  grunt (kammare, tunnlar)
+Rad 5+:   djupt (utforskning, bättre resurser)
+```
+
+Drottningkammaren börjar grunt (rad 3-5). Djupare = bättre resurser men längre transport.
+
+## Kärnan: Sandkorn-grävning
+Varje dirt-ruta har **sandkorn** (2-5 beroende på djup). Myror bär bort ett korn i taget **upp till ytan** och dumpar det. Rutan blir tunnel först när alla korn är borta.
+
+- **Nära ytan (rad 1-5):** 2 korn
+- **Medium (rad 6-15):** 3 korn
+- **Djupt (rad 16+):** 4-5 korn
+
+Detta ger:
+- **Myrstigar** — flera myror springer med sand längs samma tunnlar
+- **Djup = kostnad** — längre till ytan = långsammare
+- **Lagarbete** — en plan sysselsätter alla lediga myror, inte bara en
+- **Visuell progress** — halvgrävda rutor syns (ljusare färg, färre prickar)
+
+## Grävplan-systemet
+Spelaren dubbelklickar → systemet beräknar väg → markeras gult. **Alla lediga myror** jobbar på samma plan. Max antal aktiva planer begränsas av myrantal (inte rutor), t.ex. 1 plan per 5 myror.
 
 ## Drottningen
 - Sitter i en 3×3 kammare i mitten
@@ -100,9 +123,20 @@ Dolda i ~5% av rutor. Utforskning = risk/reward.
 
 Plus **Fritt spel** (highscore).
 
+## Drottning-uppgradering (framtida)
+Drottningen kan flyttas djupare för uppgraderingar. Kräver att tunnlar är grävda dit + resurskostnad.
+
+| Nivå | Djup | Kostnad | Fördel |
+|------|------|---------|--------|
+| 1 | Rad 4 (start) | — | Grundfunktion |
+| 2 | Rad 10+ | 20 socker, 10 protein | Snabbare ägg (10 sek istf 15) |
+| 3 | Rad 18+ | 40 socker, 25 protein | Kan producera soldater |
+| 4 | Rad 28+ | 80 socker, 50 protein | Auto-hatch + kan producera spejare |
+
+Flytten kräver att myror bär drottningen (tar tid), och hon kan inte lägga ägg under flytt.
+
 ## Framtidsvision
 - **Flera simultana kolonier** — testa strategier parallellt
-- **Auto-hatch uppgradering** — köps med resurser, drottningen kläcker ägg själv
 - **Större kartor** vid fler myror
 - Potentiellt: App Store / Google Play (inga upphovsrättsproblem här!)
 
