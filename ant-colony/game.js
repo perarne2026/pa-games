@@ -1507,6 +1507,22 @@ scene("game", () => {
           }
         }
 
+        // Arbetardoft — dirt intill tunnel med resurs får färgmarkering
+        if (tile.type === "dirt" && tile.revealed && tile.resource && tile.resource.tripsLeft > 0) {
+          // Kolla om intill en tunnel/kammare (myrorna kan lukta det)
+          let nearTunnel = false;
+          for (const [ddx, ddy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+            const nx2 = x + ddx, ny2 = y + ddy;
+            if (nx2 >= 0 && nx2 < GRID_W && ny2 >= 0 && ny2 < GRID_H && isWalkable(colony.grid[ny2][nx2].type))
+              { nearTunnel = true; break; }
+          }
+          if (nearTunnel) {
+            const rc = tile.resource.color;
+            const pulse = Math.sin(time() * 2 + x + y) * 0.1 + 0.35;
+            drawCircle({ pos: vec2(px + TILE / 2, py + TILE / 2), radius: 4, color: rgb(rc[0], rc[1], rc[2]), opacity: pulse });
+          }
+        }
+
         if (tile.revealed && isWalkable(tile.type) && tile.type !== "surface") {
           drawRect({ pos: vec2(px, py), width: TILE, height: TILE, outline: { width: 0.5, color: rgb(0, 0, 0) }, fill: false, opacity: 0.15 });
         }
