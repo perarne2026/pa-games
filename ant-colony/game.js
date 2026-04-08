@@ -1463,7 +1463,7 @@ scene("game", () => {
     hudAnts.text = scoutCount > 0 ? `Myror: ${colony.antCount} (${scoutCount}S)` : `Myror: ${colony.antCount}`;
     const readyEggs = colony.eggs.filter(e => e.age >= EGG_MIN_HATCH).length;
     const pauseTag = colony.eggsPaused ? " PAUS" : "";
-    const typeTag = colony.queenLevel >= 2 ? (colony.nextEggType === "scout" ? " [Spej]" : " [Arb]") : "";
+    const typeTag = colony.queenLevel >= 2 ? (colony.nextEggType === "scout" ? " (Spej)" : " (Arb)") : "";
     const lvlLabel = colony.queenMoving ? "Flyttar..." : `Niv ${colony.queenLevel}${pauseTag}${typeTag}`;
     hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} | Ägg: ${readyEggs}/${colony.eggs.length}` : lvlLabel;
     const sec = Math.floor(time() - colony.startTime);
