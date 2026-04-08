@@ -1050,7 +1050,7 @@ scene("game", () => {
     hudScore.text = `Koloni: ${score}`;
     hudAnts.text = `Myror: ${colony.antCount}`;
     const readyEggs = colony.eggs.filter(e => e.age >= EGG_MIN_HATCH).length;
-    const pauseTag = colony.eggsPaused ? " [PAUS]" : "";
+    const pauseTag = colony.eggsPaused ? " PAUS" : "";
     const lvlLabel = colony.queenMoving ? "Flyttar..." : `Niv ${colony.queenLevel}${pauseTag}`;
     hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} | Ägg: ${readyEggs}/${colony.eggs.length}` : lvlLabel;
     const sec = Math.floor(time() - colony.startTime);
