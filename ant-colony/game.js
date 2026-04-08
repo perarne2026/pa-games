@@ -968,7 +968,7 @@ scene("game", () => {
     if (colony.queenMoving && colony.queenMovePath) {
       // Flytt pågår — drottningen bärs längs tunnlar
       colony.queenMoveProgress += elapsed;
-      const moveSpeed = 25; // pixlar/sek (långsamt, bärs)
+      const moveSpeed = 18; // pixlar/sek (långsamt — bärs av myror)
 
       if (colony.queenMoveIdx < colony.queenMovePath.length) {
         const target = colony.queenMovePath[colony.queenMoveIdx];
@@ -1000,6 +1000,18 @@ scene("game", () => {
               colony.grid[cy][cx] = { type: "chamber", revealed: true, rockVariant: 0, resource: null, grains: 0, grainsMax: 0 };
           }
 
+        // Ta bort gamla ägg
+        for (const egg of colony.eggs) { if (egg.entity) destroy(egg.entity); }
+        colony.eggs = [];
+
+        // Uppdatera queen-pos FÖRE bladlöss-flytt
+        colony.queenX = colony.queenTargetX;
+        colony.queenY = colony.queenTargetY;
+        queen.pos.x = colony.queenX * TILE + TILE / 2;
+        queen.pos.y = colony.queenY * TILE + TILE / 2;
+        crown.pos.x = queen.pos.x;
+        crown.pos.y = queen.pos.y - 7;
+
         // Flytta bladlöss-farmer till nya kammaren
         const oldFarms = colony.aphidFarms.splice(0);
         colony.aphidFarms = [];
@@ -1007,19 +1019,6 @@ scene("game", () => {
           const spot = findAphidSpot(colony);
           if (spot) colony.aphidFarms.push({ x: spot.x, y: spot.y, timer: farm.timer });
         }
-
-        // Ta bort gamla ägg
-        for (const egg of colony.eggs) { if (egg.entity) destroy(egg.entity); }
-        colony.eggs = [];
-
-        queen.pos.x = colony.queenTargetX * TILE + TILE / 2;
-        queen.pos.y = colony.queenTargetY * TILE + TILE / 2;
-        crown.pos.x = queen.pos.x;
-        crown.pos.y = queen.pos.y - 7;
-
-        // Uppdatera globala queen-pos (hacky men nödvändigt)
-        colony.queenX = colony.queenTargetX;
-        colony.queenY = colony.queenTargetY;
 
         showToast(`${newLvl.label}! Ägg var ${newLvl.eggInterval}:e sek`);
       }
@@ -1224,6 +1223,17 @@ scene("game", () => {
         if (x === lastTapGx && y === lastTapGy && (time() - lastTapTime) < DOUBLE_TAP_MS / 1000) {
           drawRect({ pos: vec2(px + 1, py + 1), width: TILE - 2, height: TILE - 2, outline: { width: 2, color: rgb(255, 255, 255) }, fill: false, opacity: 0.6 });
         }
+      }
+    }
+
+    // Bärar-myror runt drottningen under flytt
+    if (colony.queenMoving) {
+      const qx = queen.pos.x, qy = queen.pos.y;
+      const t = time();
+      for (let i = 0; i < 4; i++) {
+        const angle = t * 2 + i * Math.PI / 2;
+        const ox = Math.cos(angle) * 8, oy = Math.sin(angle) * 8;
+        drawCircle({ pos: vec2(qx + ox, qy + oy), radius: 2.5, color: rgb(COL_ANT[0], COL_ANT[1], COL_ANT[2]), opacity: 0.9 });
       }
     }
 
