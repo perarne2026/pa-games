@@ -126,14 +126,16 @@ Plus **Fritt spel** (highscore).
 ## Drottning-uppgradering (framtida)
 Drottningen kan flyttas djupare för uppgraderingar. Kräver att tunnlar är grävda dit + resurskostnad.
 
-| Nivå | Djup | Kostnad | Fördel |
-|------|------|---------|--------|
-| 1 | Rad 4 (start) | — | Grundfunktion |
-| 2 | Rad 10+ | 20 socker, 10 protein | Snabbare ägg (10 sek istf 15) |
-| 3 | Rad 18+ | 40 socker, 25 protein | Kan producera soldater |
-| 4 | Rad 28+ | 80 socker, 50 protein | Auto-hatch + kan producera spejare |
+| Nivå | Djup | Kammare | Kostnad | Fördel |
+|------|------|---------|---------|--------|
+| 1 | Rad 4 (start) | 3×3 (8 platser) | — | Ägg var 15 sek |
+| 2 | Rad 15+ | 4×4 (15 platser) | 20S + 10P | Ägg var 10 sek |
+| 3 | Rad 40+ | 5×5 (24 platser) | 50S + 30P | Ägg var 7 sek + soldater |
+| 4 | Rad 45+ | 5×5 | 80S + 50P | Ägg var 5 sek + spejare |
 
-Flytten kräver att myror bär drottningen (tar tid), och hon kan inte lägga ägg under flytt.
+Kammaren växer vid uppgradering → mer plats för ägg + bladlöss.
+Bladlöss och ägg delar på kammar-platser (konkurrens).
+Flytten: drottningen bärs genom tunnlar (pathfinding, långsam). Inga ägg under flytt.
 
 ## Framtidsvision
 - **Flera simultana kolonier** — testa strategier parallellt
