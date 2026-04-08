@@ -1,4 +1,4 @@
-# Myrkolonin — Speldesign
+# Myrvägen — Speldesign
 
 ## Koncept
 Bygg en myrkoloni under jorden. Utforska okänd mark, samla resurser, försvara mot hot.
@@ -9,142 +9,120 @@ Top-down 2D, mobilfokus, svenska.
 - Desktop fungerar men prioriteras inte
 
 ## Kontroller
-- **Tap** på mörk/jordiga ruta = lägg grävplan (kortaste vägen ritas ut automatiskt)
-- **Tap** på grönt ägg = kläck det direkt (belönar aktiva spelare)
+- **Dubbeltap** på dirt/fog = lägg grävplan (kortaste vägen ritas ut)
+- **Singeltap fog** = skicka spejare dit (om spejare finns, annars dubbeltap-grävplan)
+- **Singeltap ägg** (grönt) = kläck direkt
+- **Singeltap drottning** = uppgradera (om möjligt)
+- **Singeltap kammare-tile** (nivå 2+) = cykla äggtyp (arbetare/spejare)
+- **Singeltap tom kammare** (farm unlockad) = välj farm-typ, dubbeltap = bygg
+- **Dubbeltap kammare** = pausa/starta ägg
 - **Drag/swipe** = panorera kartan
-- **Pinch** = zooma in/ut (+ knappar i hörnet)
+- **Pinch / scrollhjul** = zooma in/ut (+ knappar i hörnet)
 - **Hem-knapp** = centrera på drottningen
 
 ## Kartlayout — vertikal
 Kartan är vertikal (30 bred × 50 djup). Ytan är överst.
 
 ```
-Rad 0:    ~~~ himmel/markyta ~~~
-Rad 1:    ingångshål (öppning till ytan)
-Rad 2-4:  grunt (kammare, tunnlar)
-Rad 5+:   djupt (utforskning, bättre resurser)
+Rad 0:    ~~~ markyta ~~~
+Rad 1:    ingångshål
+Rad 2-4:  grunt (startkammare)
+Rad 5-12: medium (smulor, vatten, frukt)
+Rad 8+:   svampsporer spawnar
+Rad 12+:  djupt (insekter, bladlöss, socker)
+Rad 15+:  lerkällor spawnar
 ```
 
-Drottningkammaren börjar grunt (rad 3-5). Djupare = bättre resurser men längre transport.
-
-## Kärnan: Sandkorn-grävning
-Varje dirt-ruta har **sandkorn** (2-5 beroende på djup). Myror bär bort ett korn i taget **upp till ytan** och dumpar det. Rutan blir tunnel först när alla korn är borta.
+## Sandkorn-grävning
+Varje dirt-ruta har **sandkorn** (2-5 beroende på djup). Myror bär bort ett korn i taget **upp till ytan** och dumpar det i sandhögar. Rutan blir tunnel när alla korn borta.
 
 - **Nära ytan (rad 1-5):** 2 korn
 - **Medium (rad 6-15):** 3 korn
 - **Djupt (rad 16+):** 4-5 korn
 
-Detta ger:
-- **Myrstigar** — flera myror springer med sand längs samma tunnlar
-- **Djup = kostnad** — längre till ytan = långsammare
-- **Lagarbete** — en plan sysselsätter alla lediga myror, inte bara en
-- **Visuell progress** — halvgrävda rutor syns (ljusare färg, färre prickar)
+## Myrtyper
 
-## Grävplan-systemet
-Spelaren dubbelklickar → systemet beräknar väg → markeras gult. **Alla lediga myror** jobbar på samma plan. Max antal aktiva planer begränsas av myrantal (inte rutor), t.ex. 1 plan per 5 myror.
+### Arbetare
+- Gräver tunnlar, bär sand till ytan, samlar resurser
+- Kostnad: 3 socker + 1 protein
+- Doftsinne: dirt-tiles intill tunnlar visar resurs-färg (visuell hint)
 
-## Drottningen
-- Sitter i en 3×3 kammare i mitten
-- Lägger **ett ägg** var 15:e sekund
-- Äggen syns som små vita/beige cirklar i kammaren
-- Ägget **växer** visuellt under 3 sekunder (kan inte kläckas)
-- Efter 3 sek → **grönt pulsande** = kan kläckas med tap
-- Efter 15 sek → **auto-kläcks** om man inte tryckt
-- Aktiva spelare belönas med snabbare tillväxt tidigt i spelet
-- *Framtida: auto-hatch-uppgradering, resurskostnad för ägg*
+### Spejare (kräver nivå 2)
+- Rör sig i tunnlar/yta med 1.5× hastighet
+- **Doftsinne:** avslöjar fog i radie 4 (cirkulärt) medan den rör sig
+- Auto-skapar grävplaner mot resurser den luktar sig till
+- Kan inte gräva eller bära resurser
+- Spelaren dirigerar genom att tappa på fog
+- Kostnad: 4 socker + 1 protein
+- Visuellt: blå, pulserande ring vid scouting
 
-## Myrtyper (implementeras stegvis)
+### Soldat (framtida — Fas 3)
+- Strider mot hot
+- Kostnad: 3 socker + 3 protein
 
-### Fas 1 (nu)
-- **Arbetare** — gräver tunnlar, vandrar runt
+## Resurser
+Dolda i ~15% av rutor. Avslöjas vid grävning eller spejardoft.
 
-### Fas 2 (resurser)
-- Arbetare samlar resurser och bär till kammaren
-- **Spejare** — snabb, avslöjar 3 rutor radie, bär inte mat
-- Drottningen behöver mat+protein för att lägga ägg
+| Resurs | Typ | Effekt |
+|--------|-----|--------|
+| Smulor | Vanlig | +1 socker |
+| Vatten | Vanlig | +2 vatten |
+| Frukt | Medium | +2 socker, +1 protein |
+| Insekt | Medium | +2 protein |
+| Sockerbit | Sällsynt | +4 socker |
+| Bladlöss | Sällsynt | Skapar bladlöss-farm |
+| Svampsporer | Blueprint (djup 8+) | Unlock: svampodling |
+| Lerkälla | Blueprint (djup 15+) | Unlock: vattenkälla |
 
-### Fas 3 (hot)
-- **Soldat** — strider mot spindlar/hot, kostar mer protein
-- Spelaren väljer myrtyp genom att tappa på drottningen
+**Resursbrist-balans:** Spawning viktas mot det kolonin saknar — vatten < 5 ger 3× chans för vattenresurser, protein < 5 ger 2.5×, rent socker minskas vid överskott (>50).
 
-## Resurser (Fas 2)
-Dolda i ~15% av rutor. Avslöjas vid grävning.
+## Farmar — passiv resursproduktion
 
-| Resurs | Frekvens | Effekt |
-|--------|----------|--------|
-| Smulor | 40% | Bas-mat |
-| Vattendroppe | 20% | Koloni-överlevnad |
-| Fruktbit | 15% | Bra mat |
-| Död insekt | 12% | Protein → ägg |
-| Honungsdagg (bladlöss) | 8% | Passiv inkomst +1 mat/10sek |
-| Sockerbit | 5% | Stor poängboost, sällsynt |
+| Farm | Kostnad | Producerar | Intervall | Placering |
+|------|---------|-----------|-----------|-----------|
+| Bladlöss | Gratis (hittas) | +1 socker | 10s | Kammare |
+| Svampodling | 8S + 4V | +1 protein | 12s | Tom kammare-tile |
+| Vattenkälla | 6S + 4P | +1 vatten | 15s | Tom kammare-tile |
 
-## Hot (Fas 3)
-Dolda i ~5% av rutor. Utforskning = risk/reward.
+- Blueprint-resurser unlocks respektive farm-typ
+- Byggs genom att tappa tom kammare-tile → cykla val → dubbeltap bekräfta
+- Alla farmar flyttar med drottningen vid nivåuppgradering
+- HUD visar farm-antal: "Protein: 12 (+2)"
 
-| Hot | Effekt |
-|-----|--------|
-| Giftsvamp | Dödar arbetare/spejare som passerar |
-| Spindelnäste | Spawnar spindlar som rör sig mot drottningen |
-| Rivalkoloni | Expanderar mot spelaren, krig eller omväg |
+## Drottning & Nivåer
 
-## Strid (Fas 3)
-- Spindlar pathfindar mot drottningkammaren
-- Soldat vs spindel: 2 sek strid → spindel dör, soldat -1 HP
-- 3 spindlar når drottningen → game over
-- Soldater patrullerar automatiskt, engagerar hot inom 3 rutor
+| Nivå | Djup | Kammare | Kostnad | Ägg-intervall | Unlocks |
+|------|------|---------|---------|---------------|---------|
+| 1 | Rad 4 (start) | 3×3 | — | 15 sek | Arbetare |
+| 2 | Rad 15+ | 5×5 | 20S + 10P | 10 sek | Spejare, äggtyp-val |
+| 3 | Rad 40+ | 5×5 | 50S + 30P | 7 sek | — |
+| 4 | Rad 45+ | 5×5 | 80S + 50P | 5 sek | — |
 
-## Metriker
-- **Kolonins ålder** (tid)
-- **Kolonins storlek** = myror + tunnlar
-- **Score** = myror × 10 + tunnlar × 2 + ålder_sek
-- Visas i HUD och på game over
+Flytt: drottningen bärs genom tunnlar (pathfinding, 18 px/s). Inga ägg under flytt. Ingen auto-save under flytt.
 
-## Kartan
-- 40×40 grid, 32px per ruta
-- **Fog of war** — allt startar svart, avslöjas vid grävning
-- **Sten** (~8%) — kan inte grävas igenom
-- Start: 3×3 kammare + 4 korta tunnlar ut + 3 arbetare
+## Vatten
+- Kolonin förbrukar 1 vatten var 30:e sekund
+- Vatten = 0 → uttorkning: alla myror rör sig 50% långsammare
+- Vattenkälla-farmar motverkar detta
 
-## Zoom
-- Pinch-to-zoom på mobil
-- Scroll-zoom på desktop
-- Zoom-knappar (+/−) i nedre högra hörnet
-- Range: 0.5× till 2.0×
+## Fog of War
+- Allt startar svart (fog), avslöjas vid grävning (radie 1)
+- Spejare avslöjar radie 4 via doftsinne
+- Arbetare visar resurs-hint på intilliggande dirt (pulserande färgcirkel)
 
-## Nivåer (Fas 4)
-1. "Första tunneln" — Gräv 20 tunnlar
-2. "Matsamlaren" — Samla 50 mat
-3. "Väx kolonin" — Nå 30 myror
-4. "Sockerjakt" — Hitta 3 sockerbitar
-5. "Spindelkriget" — Besegra 10 spindlar
-6. "Rivalerna" — Besegra rivalkolonin
-7. "Imperiet" — Nå 200 myror
+## Metriker & HUD
+- **Score** = myror × 10 + tunnlar × 2
+- **HUD:** Score, myror (spejarantal), tid, socker (+farms), protein (+farms), vatten (+farms), nivå, äggtyp
+- Meny: två knappar — "Fortsätt" / "Nytt spel"
 
-Plus **Fritt spel** (highscore).
-
-## Drottning-uppgradering (framtida)
-Drottningen kan flyttas djupare för uppgraderingar. Kräver att tunnlar är grävda dit + resurskostnad.
-
-| Nivå | Djup | Kammare | Kostnad | Fördel |
-|------|------|---------|---------|--------|
-| 1 | Rad 4 (start) | 3×3 (8 platser) | — | Ägg var 15 sek |
-| 2 | Rad 15+ | 4×4 (15 platser) | 20S + 10P | Ägg var 10 sek |
-| 3 | Rad 40+ | 5×5 (24 platser) | 50S + 30P | Ägg var 7 sek + soldater |
-| 4 | Rad 45+ | 5×5 | 80S + 50P | Ägg var 5 sek + spejare |
-
-Kammaren växer vid uppgradering → mer plats för ägg + bladlöss.
-Bladlöss och ägg delar på kammar-platser (konkurrens).
-Flytten: drottningen bärs genom tunnlar (pathfinding, långsam). Inga ägg under flytt.
-
-## Framtidsvision
-- **Flera simultana kolonier** — testa strategier parallellt
-- **Större kartor** vid fler myror
-- Potentiellt: App Store / Google Play (inga upphovsrättsproblem här!)
+## Hot (Fas 3 — ej implementerat)
+- Giftsvamp, spindelnäste, rivalkoloni
+- Soldater patrullerar och engagerar hot
 
 ## Designprinciper
-1. **Gradvis uppfaltning** — börja enkelt, nya mekaniker en i taget
+1. **Gradvis uppfaltning** — nya mekaniker en i taget
 2. **Allt ur myrans perspektiv** — sockerbitar, inte ädelstenar
 3. **Belöna aktivt spelande** — manuell kläckning snabbare
-4. **Självförklarande** — varje moment ska vara tydligt utan instruktioner
-5. **Mobil först** — touch-kontroller, porträttläge stöds
+4. **Självförklarande** — varje moment tydligt utan instruktioner
+5. **Mobil först** — touch-kontroller, porträttläge
+6. **Realistisk inspiration** — bladlöss, svampodling, doftsinne baserat på riktig myrbiologi
