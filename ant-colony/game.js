@@ -445,18 +445,15 @@ function addSandToPile(col, x) {
 
 // === BLADLÖSS — placeras runt drottningkammaren ===
 function findAphidSpot(col) {
-  // Rutor runt drottningkammaren (de 8 runt 3×3-kammaren = ytterring)
+  // Rutor rakt intill drottningkammaren (de 8 kammar-rutorna runt drottningen själv)
   const spots = [];
-  for (let dy = -2; dy <= 2; dy++)
-    for (let dx = -2; dx <= 2; dx++) {
-      // Skippa inre kammaren (redan occupied av drottning/ägg)
-      if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) continue;
-      // Bara kanten av 5×5
-      if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue;
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue; // drottningens egen ruta
       const fx = col.queenX + dx, fy = col.queenY + dy;
       if (fx < 0 || fx >= GRID_W || fy < 0 || fy >= GRID_H) continue;
-      const tile = col.grid[fy][fx];
-      if (tile.type !== "tunnel" && tile.type !== "chamber") continue;
+      // Kolla att det inte är en ägg-plats
+      if (col.eggs.some(e => e.x === fx && e.y === fy)) continue;
       if (col.aphidFarms.some(f => f.x === fx && f.y === fy)) continue;
       spots.push({ x: fx, y: fy });
     }
