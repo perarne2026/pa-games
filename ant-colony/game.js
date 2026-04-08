@@ -1195,7 +1195,7 @@ scene("game", () => {
     if (colony.queenMoving && colony.queenMovePath) {
       // Flytt pågår — drottningen bärs längs tunnlar
       colony.queenMoveProgress += elapsed;
-      const moveSpeed = 80; // pixlar/sek
+      const moveSpeed = 18; // pixlar/sek (långsamt — bärs av myror)
 
       if (colony.queenMoveIdx < colony.queenMovePath.length) {
         const target = colony.queenMovePath[colony.queenMoveIdx];
