@@ -1,4 +1,4 @@
-// === MYRKOLONIN — Sandkorn-version ===
+// === MYRVÄGEN ===
 
 // --- KONSTANTER ---
 const TILE = 32;
@@ -61,11 +61,12 @@ const EGG_COST = { worker: { food: 3, protein: 1 }, soldier: { food: 3, protein:
 
 // Drottning-nivåer
 const QUEEN_LEVELS = [
-  { level: 1, minDepth: 0,  cost: null,                    eggInterval: 15, label: "Nivå 1" },
-  { level: 2, minDepth: 15, cost: { food: 20, protein: 10 }, eggInterval: 10, label: "Niv 2 — Snabbare" },
-  { level: 3, minDepth: 40, cost: { food: 50, protein: 30 }, eggInterval: 7,  label: "Niv 3 — Soldater" },
-  { level: 4, minDepth: 45, cost: { food: 80, protein: 50 }, eggInterval: 5,  label: "Niv 4 — Spejare" },
+  { level: 1, minDepth: 0,  cost: null,                      eggInterval: 15, chamberR: 1, label: "Nivå 1" },
+  { level: 2, minDepth: 15, cost: { food: 20, protein: 10 }, eggInterval: 10, chamberR: 2, label: "Niv 2" },
+  { level: 3, minDepth: 40, cost: { food: 50, protein: 30 }, eggInterval: 7,  chamberR: 2, label: "Niv 3" },
+  { level: 4, minDepth: 45, cost: { food: 80, protein: 50 }, eggInterval: 5,  chamberR: 2, label: "Niv 4" },
 ];
+// chamberR: halv-storlek. 1 = 3×3, 2 = 5×5
 
 // Färger
 const COL_FOG = [15, 10, 8];
@@ -444,15 +445,20 @@ function addSandToPile(col, x) {
 }
 
 // === BLADLÖSS — placeras runt drottningkammaren ===
+function chamberRadius(col) {
+  return QUEEN_LEVELS[col.queenLevel - 1].chamberR;
+}
+
 function findAphidSpot(col) {
-  // Rutor rakt intill drottningkammaren (de 8 kammar-rutorna runt drottningen själv)
+  // Alla kammar-rutor runt drottningen (utom hennes egen)
+  const r = chamberRadius(col);
   const spots = [];
-  for (let dy = -1; dy <= 1; dy++)
-    for (let dx = -1; dx <= 1; dx++) {
-      if (dx === 0 && dy === 0) continue; // drottningens egen ruta
+  for (let dy = -r; dy <= r; dy++)
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx === 0 && dy === 0) continue;
       const fx = col.queenX + dx, fy = col.queenY + dy;
       if (fx < 0 || fx >= GRID_W || fy < 0 || fy >= GRID_H) continue;
-      // Kolla att det inte är en ägg-plats
+      if (col.grid[fy][fx].type !== "chamber") continue;
       if (col.eggs.some(e => e.x === fx && e.y === fy)) continue;
       if (col.aphidFarms.some(f => f.x === fx && f.y === fy)) continue;
       spots.push({ x: fx, y: fy });
@@ -462,7 +468,7 @@ function findAphidSpot(col) {
 
 // === SCENER ===
 scene("menu", () => {
-  add([text("MYRKOLONIN", { size: 48 }), pos(center()), anchor("center"),
+  add([text("MYRVÄGEN", { size: 48 }), pos(center()), anchor("center"),
     color(COL_QUEEN[0], COL_QUEEN[1], COL_QUEEN[2])]);
   add([text("Bygg ditt underjordiska imperium", { size: 18 }),
     pos(center().x, center().y + 45), anchor("center"), color(WHITE), opacity(0.6)]);
@@ -550,12 +556,17 @@ scene("game", () => {
   function layEgg() {
     const cost = EGG_COST.worker;
     if (colony.food < cost.food || colony.protein < cost.protein) return;
+    const r = chamberRadius(colony);
     const spots = [];
-    for (let dy = -1; dy <= 1; dy++)
-      for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -r; dy <= r; dy++)
+      for (let dx = -r; dx <= r; dx++) {
         if (dx === 0 && dy === 0) continue;
         const ex = colony.queenX + dx, ey = colony.queenY + dy;
-        if (!colony.eggs.some(e => e.x === ex && e.y === ey)) spots.push({ x: ex, y: ey });
+        if (ex < 0 || ex >= GRID_W || ey < 0 || ey >= GRID_H) continue;
+        if (colony.grid[ey][ex].type !== "chamber") continue;
+        if (colony.eggs.some(e => e.x === ex && e.y === ey)) continue;
+        if (colony.aphidFarms.some(f => f.x === ex && f.y === ey)) continue;
+        spots.push({ x: ex, y: ey });
       }
     if (spots.length === 0) return;
     colony.food -= cost.food; colony.protein -= cost.protein;
@@ -838,16 +849,15 @@ scene("game", () => {
   }
 
   function findNewChamberPos(minDepth) {
-    // Hitta en tunnel-ruta på rätt djup med plats för 3×3 runt sig
-    // (omgivningen behöver INTE vara grävd — kammaren skapas automatiskt)
-    for (let y = minDepth; y < Math.min(minDepth + 10, GRID_H - 2); y++) {
-      for (let x = 2; x < GRID_W - 2; x++) {
+    const nextLvl = nextQueenLevel();
+    const r = nextLvl ? nextLvl.chamberR : 1;
+    for (let y = minDepth; y < Math.min(minDepth + 10, GRID_H - r); y++) {
+      for (let x = r; x < GRID_W - r; x++) {
         const t = colony.grid[y][x];
-        if (t.type !== "tunnel" && t.type !== "chamber") continue; // Själva rutan måste vara nåbar
-        // Kolla att 3×3 ryms (inga rock)
+        if (t.type !== "tunnel" && t.type !== "chamber") continue;
         let hasRock = false;
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -r; dy <= r; dy++)
+          for (let dx = -r; dx <= r; dx++) {
             const ty = y + dy, tx = x + dx;
             if (ty < 1 || ty >= GRID_H || tx < 0 || tx >= GRID_W) { hasRock = true; continue; }
             if (colony.grid[ty][tx].type === "rock") hasRock = true;
@@ -915,15 +925,24 @@ scene("game", () => {
         colony.queenLevel++;
         const newLvl = queenLevelData();
 
-        // Uppdatera QUEEN_X/Y (de är const, så vi sätter via alias)
-        // Skapa ny kammare
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dx = -1; dx <= 1; dx++)
-            colony.grid[colony.queenTargetY + dy][colony.queenTargetX + dx] = {
-              type: "chamber", revealed: true, rockVariant: 0, resource: null, grains: 0, grainsMax: 0
-            };
+        // Skapa ny kammare med rätt storlek
+        const r = newLvl.chamberR;
+        for (let dy = -r; dy <= r; dy++)
+          for (let dx = -r; dx <= r; dx++) {
+            const cy = colony.queenTargetY + dy, cx = colony.queenTargetX + dx;
+            if (cy >= 1 && cy < GRID_H && cx >= 0 && cx < GRID_W)
+              colony.grid[cy][cx] = { type: "chamber", revealed: true, rockVariant: 0, resource: null, grains: 0, grainsMax: 0 };
+          }
 
-        // Flytta ägg till nya kammaren (ta bort gamla)
+        // Flytta bladlöss-farmer till nya kammaren
+        const oldFarms = colony.aphidFarms.splice(0);
+        colony.aphidFarms = [];
+        for (const farm of oldFarms) {
+          const spot = findAphidSpot(colony);
+          if (spot) colony.aphidFarms.push({ x: spot.x, y: spot.y, timer: farm.timer });
+        }
+
+        // Ta bort gamla ägg
         for (const egg of colony.eggs) { if (egg.entity) destroy(egg.entity); }
         colony.eggs = [];
 
@@ -987,7 +1006,7 @@ scene("game", () => {
           }
         }
         // Prioritet 3: Pausa/starta ägg (tap på kammare, inte drottningen)
-        else if (colony.grid[gy][gx].type === "chamber" && Math.abs(gx - colony.queenX) <= 1 && Math.abs(gy - colony.queenY) <= 1) {
+        else if (colony.grid[gy][gx].type === "chamber" && Math.abs(gx - colony.queenX) <= chamberRadius(colony) && Math.abs(gy - colony.queenY) <= chamberRadius(colony)) {
           colony.eggsPaused = !colony.eggsPaused;
           showToast(colony.eggsPaused ? "Ägg pausade" : "Ägg igång");
         }
