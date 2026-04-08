@@ -1217,11 +1217,13 @@ scene("game", () => {
       if (colony.queenMoveProgress > 60) colony.queenMoveIdx = colony.queenMovePath.length;
 
       if (colony.queenMoveIdx >= colony.queenMovePath.length) {
-        // Flytt klar!
-        try {
+        // Flytt klar — skapa ny kammare
+        console.log("Queen move: completing...", colony.queenLevel, "->", colony.queenLevel + 1);
         colony.queenMoving = false;
+        colony.queenMovePath = null;
         colony.queenLevel++;
         const newLvl = queenLevelData();
+        console.log("New level:", newLvl);
 
         // Skapa ny kammare med rätt storlek
         const r = newLvl.chamberR;
@@ -1231,12 +1233,13 @@ scene("game", () => {
             if (cy >= 1 && cy < GRID_H && cx >= 0 && cx < GRID_W)
               colony.grid[cy][cx] = { type: "chamber", revealed: true, rockVariant: 0, resource: null, grains: 0, grainsMax: 0 };
           }
+        console.log("Chamber created at", colony.queenTargetX, colony.queenTargetY);
 
         // Ta bort gamla ägg
-        for (const egg of colony.eggs) { if (egg.entity) destroy(egg.entity); }
+        for (const egg of [...colony.eggs]) { if (egg.entity) destroy(egg.entity); }
         colony.eggs = [];
 
-        // Uppdatera queen-pos FÖRE bladlöss-flytt
+        // Uppdatera queen-pos FÖRE farm-flytt
         colony.queenX = colony.queenTargetX;
         colony.queenY = colony.queenTargetY;
         queen.pos.x = colony.queenX * TILE + TILE / 2;
@@ -1266,7 +1269,7 @@ scene("game", () => {
 
         const unlockMsg = colony.queenLevel === 2 ? " Spejare upplåsta!" : "";
         showToast(`${newLvl.label}! Ägg var ${newLvl.eggInterval}:e sek${unlockMsg}`);
-        } catch(e) { console.error("Queen move error:", e); colony.queenMoving = false; }
+        console.log("Queen move: DONE");
       }
       return; // Inga ägg under flytt
     }
@@ -1445,7 +1448,9 @@ scene("game", () => {
   onUpdate(() => {
     const elapsed = dt();
     camPos(camX, camY); camScale(zoomLevel);
+    try {
     updateAnts(elapsed); updateQueen(elapsed); updateEggs(elapsed); updateAphids(elapsed); updateMushroomFarms(elapsed); updateWaterSources(elapsed); updateWater(elapsed);
+    } catch(e) { console.error("UPDATE CRASH:", e); }
 
     // Auto-save var 10:e sekund
     colony.elapsed = time() - colony.startTime;
