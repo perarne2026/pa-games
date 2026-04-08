@@ -466,29 +466,96 @@ function findAphidSpot(col) {
   return spots.length > 0 ? spots[0] : null;
 }
 
+// === SAVE / LOAD ===
+const SAVE_KEY = "myrvagen_save";
+
+function saveGame(col, antEntities) {
+  const ants = antEntities.map(e => ({
+    gx: e.ant.gridX, gy: e.ant.gridY,
+    state: e.ant.state,
+    carrying: e.ant.carrying,
+    carrySand: e.ant.carrySand,
+  }));
+  const data = {
+    grid: col.grid.map(row => row.map(t => ({
+      type: t.type, revealed: t.revealed, rockVariant: t.rockVariant,
+      resource: t.resource, grains: t.grains, grainsMax: t.grainsMax,
+    }))),
+    food: col.food, protein: col.protein, water: col.water,
+    antCount: col.antCount, tunnelCount: col.tunnelCount,
+    queenLevel: col.queenLevel, queenX: col.queenX, queenY: col.queenY,
+    queenTimer: col.queenTimer, waterTimer: col.waterTimer,
+    dehydrated: col.dehydrated, eggsPaused: col.eggsPaused,
+    aphidFarms: col.aphidFarms,
+    sandPiles: col.sandPiles, sandTotal: col.sandTotal,
+    digPlan: col.digPlan,
+    elapsed: col.elapsed || 0,
+    ants,
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+function hasSave() {
+  return !!localStorage.getItem(SAVE_KEY);
+}
+
+function loadSave() {
+  try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch(e) { return null; }
+}
+
+function clearSave() {
+  localStorage.removeItem(SAVE_KEY);
+}
+
 // === SCENER ===
 scene("menu", () => {
   add([text("MYRVÄGEN", { size: 48 }), pos(center()), anchor("center"),
     color(COL_QUEEN[0], COL_QUEEN[1], COL_QUEEN[2])]);
   add([text("Bygg ditt underjordiska imperium", { size: 18 }),
     pos(center().x, center().y + 45), anchor("center"), color(WHITE), opacity(0.6)]);
-  add([text("Tryck för att börja", { size: 20 }),
-    pos(center().x, center().y + 100), anchor("center"), color(WHITE), opacity(0.5)]);
 
-  const best = localStorage.getItem("antcolony_best");
-  if (best) {
-    const data = JSON.parse(best);
-    add([text(`Bästa: ${data.score} poäng`, { size: 16 }),
-      pos(center().x, center().y + 140), anchor("center"), color(255, 220, 100), opacity(0.7)]);
+  if (hasSave()) {
+    add([text("Tryck for att fortsatta", { size: 20 }),
+      pos(center().x, center().y + 90), anchor("center"), color(180, 255, 160), opacity(0.8)]);
+    add([text("(dubbelklicka for nytt spel)", { size: 14 }),
+      pos(center().x, center().y + 120), anchor("center"), color(WHITE), opacity(0.4)]);
+    let menuTapTime = 0;
+    onClick(() => {
+      const now = time();
+      if ((now - menuTapTime) < 0.4) { clearSave(); go("game"); } // dubbelklick = nytt
+      else { menuTapTime = now; go("game"); } // singel = fortsätt
+    });
+  } else {
+    add([text("Tryck for att borja", { size: 20 }),
+      pos(center().x, center().y + 100), anchor("center"), color(WHITE), opacity(0.5)]);
+    onClick(() => go("game"));
   }
-  onClick(() => go("game"));
   onKeyPress("space", () => go("game"));
 });
 
 scene("game", () => {
+  const saved = loadSave();
   colony = createColony();
-  initGrid(colony);
-  colony.startTime = time();
+
+  if (saved) {
+    // Återställ grid
+    colony.grid = saved.grid;
+    colony.food = saved.food; colony.protein = saved.protein; colony.water = saved.water;
+    colony.antCount = 0; // räknas upp av spawnAnt
+    colony.tunnelCount = saved.tunnelCount;
+    colony.queenLevel = saved.queenLevel;
+    colony.queenX = saved.queenX; colony.queenY = saved.queenY;
+    colony.queenTimer = saved.queenTimer; colony.waterTimer = saved.waterTimer;
+    colony.dehydrated = saved.dehydrated; colony.eggsPaused = saved.eggsPaused || false;
+    colony.aphidFarms = saved.aphidFarms || [];
+    colony.sandPiles = saved.sandPiles || []; colony.sandTotal = saved.sandTotal || 0;
+    colony.digPlan = saved.digPlan || [];
+    colony.startTime = time() - (saved.elapsed || 0);
+    colony.queenInterval = QUEEN_LEVELS[colony.queenLevel - 1].eggInterval;
+  } else {
+    initGrid(colony);
+    colony.startTime = time();
+  }
 
   // Toast
   let toastText = "", toastTimer = 0;
@@ -496,8 +563,8 @@ scene("game", () => {
   showToastGlobal = showToast;
 
   // Kamera
-  let camX = QUEEN_X * TILE + TILE / 2;
-  let camY = QUEEN_Y * TILE + TILE / 2;
+  let camX = colony.queenX * TILE + TILE / 2;
+  let camY = colony.queenY * TILE + TILE / 2;
   let zoomLevel = ZOOM_DEFAULT;
   let isDragging = false;
   let dragStartX = 0, dragStartY = 0, dragCamStartX = 0, dragCamStartY = 0, dragDist = 0;
@@ -542,11 +609,15 @@ scene("game", () => {
     return ant;
   }
 
-  for (const [sx, sy] of [[QUEEN_X - 1, QUEEN_Y], [QUEEN_X + 1, QUEEN_Y], [QUEEN_X, QUEEN_Y + 1]])
-    spawnAnt(sx, sy);
+  if (saved && saved.ants) {
+    for (const a of saved.ants) spawnAnt(a.gx, a.gy);
+  } else {
+    for (const [sx, sy] of [[QUEEN_X - 1, QUEEN_Y], [QUEEN_X + 1, QUEEN_Y], [QUEEN_X, QUEEN_Y + 1]])
+      spawnAnt(sx, sy);
+  }
 
   // Drottning
-  const queen = add([circle(5), pos(QUEEN_X * TILE + TILE / 2, QUEEN_Y * TILE + TILE / 2),
+  const queen = add([circle(5), pos(colony.queenX * TILE + TILE / 2, colony.queenY * TILE + TILE / 2),
     anchor("center"), color(COL_QUEEN[0], COL_QUEEN[1], COL_QUEEN[2]), z(15)]);
   const crown = add([circle(2.5), pos(queen.pos.x, queen.pos.y - 7),
     anchor("center"), color(255, 210, 60), z(16)]);
@@ -1056,6 +1127,11 @@ scene("game", () => {
     const elapsed = dt();
     camPos(camX, camY); camScale(zoomLevel);
     updateAnts(elapsed); updateQueen(elapsed); updateEggs(elapsed); updateAphids(elapsed); updateWater(elapsed);
+
+    // Auto-save var 10:e sekund
+    colony.elapsed = time() - colony.startTime;
+    colony._saveTimer = (colony._saveTimer || 0) + elapsed;
+    if (colony._saveTimer >= 10) { colony._saveTimer = 0; saveGame(colony, antEntities); }
 
     const score = colony.antCount * 10 + colony.tunnelCount * 2;
     hudScore.text = `Koloni: ${score}`;
