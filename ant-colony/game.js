@@ -65,9 +65,9 @@ const EGG_COST = { worker: { food: 3, protein: 1 }, soldier: { food: 3, protein:
 // Drottning-nivåer
 const QUEEN_LEVELS = [
   { level: 1, minDepth: 0,  cost: null,                      eggInterval: 15, chamberR: 1, label: "Nivå 1" },
-  { level: 2, minDepth: 15, cost: { food: 20, protein: 10 }, eggInterval: 10, chamberR: 2, label: "Niv 2" },
-  { level: 3, minDepth: 40, cost: { food: 50, protein: 30 }, eggInterval: 7,  chamberR: 2, label: "Niv 3" },
-  { level: 4, minDepth: 45, cost: { food: 80, protein: 50 }, eggInterval: 5,  chamberR: 2, label: "Niv 4" },
+  { level: 2, minDepth: 10, cost: { food: 20, protein: 10 }, eggInterval: 10, chamberR: 2, label: "Niv 2" },
+  { level: 3, minDepth: 20, cost: { food: 50, protein: 30 }, eggInterval: 7,  chamberR: 2, label: "Niv 3" },
+  { level: 4, minDepth: 35, cost: { food: 80, protein: 50 }, eggInterval: 5,  chamberR: 2, label: "Niv 4" },
 ];
 // chamberR: halv-storlek. 1 = 3×3, 2 = 5×5
 
