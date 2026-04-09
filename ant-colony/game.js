@@ -1326,28 +1326,25 @@ scene("game", () => {
         else {
           const tile = colony.grid[gy][gx];
           if ((tile.type === "dirt" || !tile.revealed) && gy > SURFACE_Y) {
+            // Dubbeltap dirt/fog → grävplan
+            const timeSinceLast = (now - lastTapTime) * 1000;
+            const sameArea = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
+            if (timeSinceLast < DOUBLE_TAP_MS && sameArea) { addDigPlan(gx, gy); lastTapTime = 0; }
+            else { lastTapTime = now; lastTapGx = gx; lastTapGy = gy; }
+          }
+          else if (isWalkable(tile.type) && gy > SURFACE_Y) {
+            // Dubbeltap tunnel/kammare → skicka spejare dit
             const timeSinceLast = (now - lastTapTime) * 1000;
             const sameArea = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
             if (timeSinceLast < DOUBLE_TAP_MS && sameArea) {
-              if (!tile.revealed) {
-                // Dubbeltap fog → skicka spejare
-                const scout = antEntities.find(e => e.ant.type === "scout" && (e.ant.state === "idle" || e.ant.state === "scouting"));
-                if (scout) {
-                  scout.ant.scoutTarget = { x: gx, y: gy };
-                  scout.ant.state = "idle"; scout.ant.path = null; scout.ant.replanTimer = 0;
-                  showToast("Spejare skickad!");
-                } else {
-                  // Ingen spejare — grävplan som fallback
-                  addDigPlan(gx, gy);
-                }
-              } else {
-                // Dubbeltap avslöjad dirt → grävplan
-                addDigPlan(gx, gy);
+              const scout = antEntities.find(e => e.ant.type === "scout" && (e.ant.state === "idle" || e.ant.state === "scouting"));
+              if (scout) {
+                scout.ant.scoutTarget = { x: gx, y: gy };
+                scout.ant.state = "idle"; scout.ant.path = null; scout.ant.replanTimer = 0;
+                showToast("Spejare skickad!");
               }
               lastTapTime = 0;
-            } else {
-              lastTapTime = now; lastTapGx = gx; lastTapGy = gy;
-            }
+            } else { lastTapTime = now; lastTapGx = gx; lastTapGy = gy; }
           }
         }
       }
