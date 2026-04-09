@@ -1044,13 +1044,7 @@ scene("game", () => {
     // Sniffa varje steg (avslöja tiles runt sig)
     const found = scoutSniff(colony, ant.gridX, ant.gridY);
     for (const r of found) {
-      // Nivå 3+: auto-skapa grävplan mot hittade resurser
-      if (colony.queenLevel >= 3 && colony.digPlan.length < maxDigPlans(colony) * 8) {
-        addDigPlan(r.x, r.y);
-        showToast(`Spejare: ${r.resource.label} (${r.x},${r.y})`);
-      } else if (colony.queenLevel < 3) {
-        showToast(`Spejare luktar: ${r.resource.label}`);
-      }
+      showToast(`Spejare: ${r.resource.label}`);
     }
 
     ant.replanTimer -= elapsed;
@@ -1332,27 +1326,27 @@ scene("game", () => {
         else {
           const tile = colony.grid[gy][gx];
           if ((tile.type === "dirt" || !tile.revealed) && gy > SURFACE_Y) {
-            // Single-tap på fog: skicka spejare om tillgänglig
-            if (!tile.revealed) {
-              const scout = antEntities.find(e => e.ant.type === "scout" && (e.ant.state === "idle" || e.ant.state === "scouting"));
-              if (scout) {
-                scout.ant.scoutTarget = { x: gx, y: gy };
-                scout.ant.state = "idle"; scout.ant.path = null; scout.ant.replanTimer = 0;
-                showToast("Spejare skickad!");
-                lastTapTime = 0; // förhindra dubbeltap-dig
+            const timeSinceLast = (now - lastTapTime) * 1000;
+            const sameArea = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
+            if (timeSinceLast < DOUBLE_TAP_MS && sameArea) {
+              if (!tile.revealed) {
+                // Dubbeltap fog → skicka spejare
+                const scout = antEntities.find(e => e.ant.type === "scout" && (e.ant.state === "idle" || e.ant.state === "scouting"));
+                if (scout) {
+                  scout.ant.scoutTarget = { x: gx, y: gy };
+                  scout.ant.state = "idle"; scout.ant.path = null; scout.ant.replanTimer = 0;
+                  showToast("Spejare skickad!");
+                } else {
+                  // Ingen spejare — grävplan som fallback
+                  addDigPlan(gx, gy);
+                }
               } else {
-                // Ingen spejare — fallback till dubbeltap-grävplan
-                const timeSinceLast = (now - lastTapTime) * 1000;
-                const sameArea = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
-                if (timeSinceLast < DOUBLE_TAP_MS && sameArea) { addDigPlan(gx, gy); lastTapTime = 0; }
-                else { lastTapTime = now; lastTapGx = gx; lastTapGy = gy; }
+                // Dubbeltap avslöjad dirt → grävplan
+                addDigPlan(gx, gy);
               }
+              lastTapTime = 0;
             } else {
-              // Revealed dirt — normal dubbeltap-grävplan
-              const timeSinceLast = (now - lastTapTime) * 1000;
-              const sameArea = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
-              if (timeSinceLast < DOUBLE_TAP_MS && sameArea) { addDigPlan(gx, gy); lastTapTime = 0; }
-              else { lastTapTime = now; lastTapGx = gx; lastTapGy = gy; }
+              lastTapTime = now; lastTapGx = gx; lastTapGy = gy;
             }
           }
         }
