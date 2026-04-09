@@ -1286,7 +1286,7 @@ scene("game", () => {
   }
 
   // === KAMERA ===
-  const HUD_HEIGHT = 72; // pixlar som HUD tar
+  const HUD_HEIGHT = 48; // tunn stats-bar uppe
   function clampCam() {
     const hw = (width() / 2) / zoomLevel, hh = (height() / 2) / zoomLevel;
     const hudOffset = (HUD_HEIGHT / 2) / zoomLevel;
@@ -1361,41 +1361,52 @@ scene("game", () => {
     isDragging = false;
   });
 
-  // === HUD ===
-  const w = width();
-  const fs = Math.max(12, Math.min(16, w / 35));
-  const hy = 6;
-  add([rect(w, 72), pos(0, 0), fixed(), color(0, 0, 0), opacity(0.6), z(100)]);
-  const hudScore = add([text("Koloni: 0", { size: fs }), pos(10, hy), fixed(), color(255, 220, 100), z(101)]);
-  const hudAnts = add([text("Myror: 3", { size: fs }), pos(w * 0.35, hy), fixed(), color(WHITE), z(101)]);
-  const hudTime = add([text("0:00", { size: fs }), pos(w * 0.7, hy), fixed(), color(WHITE), opacity(0.7), z(101)]);
-  const hudSugar = add([text("Socker: 8", { size: fs }), pos(10, hy + 20), fixed(), color(220, 180, 100), z(101)]);
-  const hudProtein = add([text("Protein: 4", { size: fs }), pos(w * 0.35, hy + 20), fixed(), color(80, 160, 80), z(101)]);
-  const hudWater = add([text("Vatten: 8", { size: fs }), pos(w * 0.7, hy + 20), fixed(), color(100, 160, 220), z(101)]);
-  const hudEggs = add([text("", { size: fs }), pos(10, hy + 40), fixed(), color(COL_EGG_READY[0], COL_EGG_READY[1], COL_EGG_READY[2]), z(101)]);
+  // === HUD — stats uppe, kontroller nere ===
+  const w = width(), h = height();
+  const fs = Math.max(11, Math.min(14, w / 38));
+  const TOP_H = 48; // tunn stats-bar
+  const BOT_H = 44; // kontrollbar
 
-  // Zoom & Hem knappar
-  const zoomInBtn = add([rect(36, 36, { radius: 4 }), pos(w - 46, height() - 90), fixed(), color(80, 60, 40), opacity(0.7), z(101), area()]);
-  add([text("+", { size: 22 }), pos(w - 28, height() - 72), fixed(), anchor("center"), color(WHITE), z(102)]);
-  zoomInBtn.onClick(() => { zoomLevel = Math.min(ZOOM_MAX, zoomLevel + ZOOM_STEP); });
-  const zoomOutBtn = add([rect(36, 36, { radius: 4 }), pos(w - 46, height() - 48), fixed(), color(80, 60, 40), opacity(0.7), z(101), area()]);
-  add([text("−", { size: 22 }), pos(w - 28, height() - 30), fixed(), anchor("center"), color(WHITE), z(102)]);
-  zoomOutBtn.onClick(() => { zoomLevel = Math.max(ZOOM_MIN, zoomLevel - ZOOM_STEP); });
-  const homeBtn = add([rect(50, 28, { radius: 4 }), pos(w - 60, 4), fixed(), color(80, 60, 40), opacity(0.7), z(101), area()]);
-  add([text("Hem", { size: 14 }), pos(w - 35, 10), fixed(), anchor("center"), color(WHITE), z(102)]);
+  // --- TOP BAR (stats) ---
+  add([rect(w, TOP_H), pos(0, 0), fixed(), color(0, 0, 0), opacity(0.6), z(100)]);
+  const hudScore = add([text("0", { size: fs }), pos(10, 5), fixed(), color(255, 220, 100), z(101)]);
+  const hudAnts = add([text("", { size: fs }), pos(w * 0.3, 5), fixed(), color(WHITE), z(101)]);
+  const hudTime = add([text("0:00", { size: fs }), pos(w - 10, 5), fixed(), anchor("topright"), color(WHITE), opacity(0.7), z(101)]);
+  const hudSugar = add([text("S:8", { size: fs }), pos(10, 5 + fs + 4), fixed(), color(220, 180, 100), z(101)]);
+  const hudProtein = add([text("P:4", { size: fs }), pos(w * 0.33, 5 + fs + 4), fixed(), color(80, 160, 80), z(101)]);
+  const hudWater = add([text("V:8", { size: fs }), pos(w * 0.63, 5 + fs + 4), fixed(), color(100, 160, 220), z(101)]);
+  const hudEggs = add([text("", { size: fs }), pos(w - 10, 5 + fs + 4), fixed(), anchor("topright"), color(COL_EGG_READY[0], COL_EGG_READY[1], COL_EGG_READY[2]), z(101)]);
+
+  // --- BOTTOM BAR (kontroller) ---
+  add([rect(w, BOT_H), pos(0, h - BOT_H), fixed(), color(0, 0, 0), opacity(0.5), z(100)]);
+  const btnY = h - BOT_H + 6, btnH = 32;
+
+  // Hem-knapp
+  const homeBtn = add([rect(46, btnH, { radius: 6 }), pos(8, btnY), fixed(), color(80, 60, 40), opacity(0.8), z(101), area()]);
+  add([text("Hem", { size: 13 }), pos(31, btnY + btnH / 2), fixed(), anchor("center"), color(WHITE), z(102)]);
   homeBtn.onClick(() => { camX = colony.queenX * TILE + TILE / 2; camY = colony.queenY * TILE + TILE / 2; zoomLevel = ZOOM_DEFAULT; });
 
-  // Paus-knapp
-  const pauseBtn = add([rect(36, 28, { radius: 4 }), pos(w - 60, 36), fixed(), color(80, 60, 40), opacity(0.7), z(101), area()]);
-  const pauseLabel = add([text("II", { size: 12 }), pos(w - 42, 42), fixed(), anchor("center"), color(WHITE), z(102)]);
+  // Zoom ut
+  const zoomOutBtn = add([rect(36, btnH, { radius: 6 }), pos(62, btnY), fixed(), color(80, 60, 40), opacity(0.8), z(101), area()]);
+  add([text("-", { size: 20 }), pos(80, btnY + btnH / 2), fixed(), anchor("center"), color(WHITE), z(102)]);
+  zoomOutBtn.onClick(() => { zoomLevel = Math.max(ZOOM_MIN, zoomLevel - ZOOM_STEP); });
+
+  // Zoom in
+  const zoomInBtn = add([rect(36, btnH, { radius: 6 }), pos(104, btnY), fixed(), color(80, 60, 40), opacity(0.8), z(101), area()]);
+  add([text("+", { size: 20 }), pos(122, btnY + btnH / 2), fixed(), anchor("center"), color(WHITE), z(102)]);
+  zoomInBtn.onClick(() => { zoomLevel = Math.min(ZOOM_MAX, zoomLevel + ZOOM_STEP); });
+
+  // Ägg paus-knapp
+  const pauseBtn = add([rect(70, btnH, { radius: 6 }), pos(w - 82, btnY), fixed(), color(80, 60, 40), opacity(0.8), z(101), area()]);
+  const pauseLabel = add([text("Agg: ON", { size: 12 }), pos(w - 47, btnY + btnH / 2), fixed(), anchor("center"), color(WHITE), z(102)]);
   pauseBtn.onClick(() => {
     colony.eggsPaused = !colony.eggsPaused;
     showToast(colony.eggsPaused ? "Agg pausade" : "Agg igang");
   });
 
   // Äggtyp-knapp (bara synlig nivå 2+)
-  const eggTypeBtn = add([rect(36, 28, { radius: 4 }), pos(w - 102, 36), fixed(), color(60, 80, 120), opacity(0), z(101), area()]);
-  const eggTypeLabel = add([text("", { size: 11 }), pos(w - 84, 42), fixed(), anchor("center"), color(WHITE), z(102)]);
+  const eggTypeBtn = add([rect(52, btnH, { radius: 6 }), pos(w - 140, btnY), fixed(), color(60, 80, 120), opacity(0), z(101), area()]);
+  const eggTypeLabel = add([text("", { size: 12 }), pos(w - 114, btnY + btnH / 2), fixed(), anchor("center"), color(WHITE), z(102)]);
   eggTypeBtn.onClick(() => {
     if (colony.queenLevel < 2) return;
     const types = ["worker", "scout"];
@@ -1406,7 +1417,7 @@ scene("game", () => {
     showToast(`Nasta: ${labels[colony.nextEggType]} (${cost.food}S ${cost.protein}P)`);
   });
 
-  const toastLabel = add([text("", { size: 12, width: w - 20 }), pos(w / 2, height() - 40), fixed(), anchor("center"), color(255, 200, 80), opacity(0), z(103)]);
+  const toastLabel = add([text("", { size: 12, width: w - 20 }), pos(w / 2, h - BOT_H - 30), fixed(), anchor("center"), color(255, 200, 80), opacity(0), z(103)]);
   let hoverGx = -1, hoverGy = -1;
 
   // === MAIN LOOP ===
@@ -1423,28 +1434,26 @@ scene("game", () => {
     if (colony._saveTimer >= 10 && !colony.queenMoving) { colony._saveTimer = 0; saveGame(colony, antEntities); }
 
     const score = colony.antCount * 10 + colony.tunnelCount * 2;
-    hudScore.text = `Koloni: ${score}`;
     const scoutCount = antEntities.filter(e => e.ant.type === "scout").length;
-    hudAnts.text = scoutCount > 0 ? `Myror: ${colony.antCount} (${scoutCount}S)` : `Myror: ${colony.antCount}`;
+    hudScore.text = `${score}`;
+    hudAnts.text = scoutCount > 0 ? `${colony.antCount} myror (${scoutCount}S)` : `${colony.antCount} myror`;
     const readyEggs = colony.eggs.filter(e => e.age >= EGG_MIN_HATCH).length;
-    const lvlLabel = colony.queenMoving ? "Flyttar..." : `Niv ${colony.queenLevel}`;
-    hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} | Agg: ${readyEggs}/${colony.eggs.length}` : lvlLabel;
-    // Paus-knapp visuellt
-    pauseLabel.text = colony.eggsPaused ? ">" : "II";
-    pauseBtn.color = colony.eggsPaused ? rgb(120, 60, 40) : rgb(80, 60, 40);
-    // Äggtyp-knapp (bara nivå 2+)
-    if (colony.queenLevel >= 2) {
-      eggTypeBtn.opacity = 0.7;
-      const tl = colony.nextEggType === "scout" ? "Spej" : "Arb";
-      eggTypeLabel.text = tl;
-      eggTypeBtn.color = colony.nextEggType === "scout" ? rgb(COL_SCOUT[0], COL_SCOUT[1], COL_SCOUT[2]) : rgb(80, 60, 40);
-    } else { eggTypeBtn.opacity = 0; eggTypeLabel.text = ""; }
+    const lvlLabel = colony.queenMoving ? "..." : `L${colony.queenLevel}`;
+    hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} ${readyEggs}/${colony.eggs.length}` : lvlLabel;
     const sec = Math.floor(time() - colony.startTime);
     hudTime.text = `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
-    hudSugar.text = `Socker: ${colony.food}` + (colony.aphidFarms.length > 0 ? ` (+${colony.aphidFarms.length})` : "");
-    hudProtein.text = `Protein: ${colony.protein}` + (colony.mushroomFarms.length > 0 ? ` (+${colony.mushroomFarms.length})` : "");
-    hudWater.text = `Vatten: ${colony.water}` + (colony.waterSources.length > 0 ? ` (+${colony.waterSources.length})` : "");
+    hudSugar.text = `S:${colony.food}` + (colony.aphidFarms.length > 0 ? `(+${colony.aphidFarms.length})` : "");
+    hudProtein.text = `P:${colony.protein}` + (colony.mushroomFarms.length > 0 ? `(+${colony.mushroomFarms.length})` : "");
+    hudWater.text = `V:${colony.water}` + (colony.waterSources.length > 0 ? `(+${colony.waterSources.length})` : "");
     hudWater.color = colony.dehydrated ? rgb(255, 80, 80) : rgb(100, 160, 220);
+    // Kontroller nere
+    pauseLabel.text = colony.eggsPaused ? "Agg: AV" : "Agg: PA";
+    pauseBtn.color = colony.eggsPaused ? rgb(120, 50, 40) : rgb(60, 90, 50);
+    if (colony.queenLevel >= 2) {
+      eggTypeBtn.opacity = 0.8;
+      eggTypeLabel.text = colony.nextEggType === "scout" ? "Spej" : "Arb";
+      eggTypeBtn.color = colony.nextEggType === "scout" ? rgb(COL_SCOUT[0], COL_SCOUT[1], COL_SCOUT[2]) : rgb(80, 60, 40);
+    } else { eggTypeBtn.opacity = 0; eggTypeLabel.text = ""; }
 
     if (toastTimer > 0) { toastTimer -= elapsed; toastLabel.text = toastText; toastLabel.opacity = Math.min(1, toastTimer * 2); }
     else toastLabel.opacity = 0;
