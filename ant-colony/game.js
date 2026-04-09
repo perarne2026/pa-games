@@ -44,8 +44,8 @@ const RESOURCES = {
   insekt:      { food: 0, protein: 2, water: 0, color: [80, 120, 60],   label: "Insekt",     trips: [3, 5] },
   honungsdagg: { food: 0, protein: 0, water: 0, color: [180, 220, 80],  label: "Bladlöss!",  trips: [1, 1] },
   socker:      { food: 4, protein: 0, water: 0, color: [250, 250, 250], label: "Socker!",    trips: [4, 7] },
-  svampsporer: { food: 0, protein: 0, water: 0, color: [180, 140, 100], label: "Svampsporer!", trips: [1, 1] },
-  lerkalla:    { food: 0, protein: 0, water: 0, color: [80, 140, 200],  label: "Lerkälla!",   trips: [1, 1] },
+  svampsporer: { food: 0, protein: 0, water: 0, color: [180, 140, 100], label: "Svamp!",   trips: [1, 1] },
+  lerkalla:    { food: 0, protein: 0, water: 0, color: [80, 140, 200],  label: "Vatten!",  trips: [1, 1] },
 };
 const NEAR_TABLE = [
   { kind: "smulor", weight: 30 }, { kind: "vatten", weight: 28 },
@@ -93,10 +93,8 @@ const COL_SCOUT_EGG = [210, 225, 245];
 const SCOUT_SPEED = 90;           // 1.5× worker
 const SCOUT_SNIFF_RADIUS = 4;     // doftsinne — avslöjar 9×9
 
-const FARM_COST = {
-  mushroom: { food: 8, water: 4, label: "Svampodling", interval: 12 },
-  water:    { food: 6, protein: 4, label: "Vattenkälla", interval: 15 },
-};
+const MUSHROOM_INTERVAL = 12;
+const WATER_SRC_INTERVAL = 15;
 
 const DOUBLE_TAP_MS = 350;
 
@@ -139,9 +137,6 @@ function createColony() {
     nextEggType: "worker",
     mushroomFarms: [],      // [{x, y, timer}]
     waterSources: [],       // [{x, y, timer}]
-    mushroomUnlocked: false,
-    waterUnlocked: false,
-    pendingBuild: null,     // null | "mushroom" | "water" — vald byggtyp
   };
 }
 
@@ -157,9 +152,6 @@ function pickResource(depth) {
     // Djup-gate: svampsporer kräver 8+, lerkälla 15+
     if (e.kind === "svampsporer" && depth < 8) boost = 0;
     else if (e.kind === "lerkalla" && depth < 15) boost = 0;
-    // Inte dubbla blueprint-resurser om redan unlockad
-    else if (e.kind === "svampsporer" && colony && colony.mushroomUnlocked) boost = 0;
-    else if (e.kind === "lerkalla" && colony && colony.waterUnlocked) boost = 0;
     else if (colony) {
       if (res.water > 0 && colony.water < 5) boost = 3;
       else if (res.protein > 0 && colony.protein < 5) boost = 2.5;
@@ -608,7 +600,6 @@ function saveGame(col, antEntities) {
     dehydrated: col.dehydrated, eggsPaused: col.eggsPaused, nextEggType: col.nextEggType,
     aphidFarms: col.aphidFarms,
     mushroomFarms: col.mushroomFarms, waterSources: col.waterSources,
-    mushroomUnlocked: col.mushroomUnlocked, waterUnlocked: col.waterUnlocked,
     sandPiles: col.sandPiles, sandTotal: col.sandTotal,
     digPlan: col.digPlan,
     elapsed: col.elapsed || 0,
@@ -678,7 +669,6 @@ scene("game", () => {
     colony.dehydrated = saved.dehydrated; colony.eggsPaused = saved.eggsPaused || false; colony.nextEggType = saved.nextEggType || "worker";
     colony.aphidFarms = saved.aphidFarms || [];
     colony.mushroomFarms = saved.mushroomFarms || []; colony.waterSources = saved.waterSources || [];
-    colony.mushroomUnlocked = saved.mushroomUnlocked || false; colony.waterUnlocked = saved.waterUnlocked || false;
     colony.sandPiles = saved.sandPiles || []; colony.sandTotal = saved.sandTotal || 0;
     colony.digPlan = saved.digPlan || [];
     colony.startTime = time() - (saved.elapsed || 0);
@@ -1006,11 +996,23 @@ scene("game", () => {
                 colony.food += 3; // kompensation
               }
             } else if (res.kind === "svampsporer") {
-              colony.mushroomUnlocked = true;
-              showToast("Svampsporer! Tryck tom kammare → svampodling");
+              const farmSpot2 = findFarmSpot(colony);
+              if (farmSpot2) {
+                colony.mushroomFarms.push({ x: farmSpot2.x, y: farmSpot2.y, timer: 0 });
+                showToast(`Svampodling! (${colony.mushroomFarms.length})`);
+              } else {
+                showToast("Ingen plats for svampodling!");
+                colony.protein += 3;
+              }
             } else if (res.kind === "lerkalla") {
-              colony.waterUnlocked = true;
-              showToast("Lerkälla! Tryck tom kammare → vattenkälla");
+              const farmSpot3 = findFarmSpot(colony);
+              if (farmSpot3) {
+                colony.waterSources.push({ x: farmSpot3.x, y: farmSpot3.y, timer: 0 });
+                showToast(`Vattenkalla! (${colony.waterSources.length})`);
+              } else {
+                showToast("Ingen plats for vattenkalla!");
+                colony.water += 3;
+              }
             } else { colony.food += res.food; colony.protein += res.protein; colony.water += res.water; }
             add([text(`+${res.label}`, { size: 10 }), pos(ant.pos.x, ant.pos.y - 10),
               anchor("center"), color(res.color[0], res.color[1], res.color[2]),
@@ -1042,10 +1044,12 @@ scene("game", () => {
     // Sniffa varje steg (avslöja tiles runt sig)
     const found = scoutSniff(colony, ant.gridX, ant.gridY);
     for (const r of found) {
-      // Auto-skapa grävplan mot hittade resurser
-      if (colony.digPlan.length < maxDigPlans(colony) * 8) {
+      // Nivå 3+: auto-skapa grävplan mot hittade resurser
+      if (colony.queenLevel >= 3 && colony.digPlan.length < maxDigPlans(colony) * 8) {
         addDigPlan(r.x, r.y);
         showToast(`Spejare: ${r.resource.label} (${r.x},${r.y})`);
+      } else if (colony.queenLevel < 3) {
+        showToast(`Spejare luktar: ${r.resource.label}`);
       }
     }
 
@@ -1109,7 +1113,7 @@ scene("game", () => {
   function updateMushroomFarms(elapsed) {
     for (const farm of colony.mushroomFarms) {
       farm.timer += elapsed;
-      if (farm.timer >= FARM_COST.mushroom.interval) { farm.timer -= FARM_COST.mushroom.interval; colony.protein++;
+      if (farm.timer >= MUSHROOM_INTERVAL) { farm.timer -= MUSHROOM_INTERVAL; colony.protein++;
         add([text("+1P", { size: 10 }), pos(farm.x * TILE + TILE / 2, farm.y * TILE + TILE / 2 - 8),
           anchor("center"), color(180, 140, 100), z(25), opacity(1), lifespan(1, { fade: 0.5 }), move(UP, 15)]); }
     }
@@ -1117,7 +1121,7 @@ scene("game", () => {
   function updateWaterSources(elapsed) {
     for (const farm of colony.waterSources) {
       farm.timer += elapsed;
-      if (farm.timer >= FARM_COST.water.interval) { farm.timer -= FARM_COST.water.interval; colony.water++;
+      if (farm.timer >= WATER_SRC_INTERVAL) { farm.timer -= WATER_SRC_INTERVAL; colony.water++;
         add([text("+1V", { size: 10 }), pos(farm.x * TILE + TILE / 2, farm.y * TILE + TILE / 2 - 8),
           anchor("center"), color(80, 140, 200), z(25), opacity(1), lifespan(1, { fade: 0.5 }), move(UP, 15)]); }
     }
@@ -1267,8 +1271,8 @@ scene("game", () => {
           if (spot) colony.waterSources.push({ x: spot.x, y: spot.y, timer: farm.timer });
         }
 
-        const unlockMsg = colony.queenLevel === 2 ? " Spejare upplåsta!" : "";
-        showToast(`${newLvl.label}! Ägg var ${newLvl.eggInterval}:e sek${unlockMsg}`);
+        const unlockMsg = colony.queenLevel === 2 ? " Spejare!" : colony.queenLevel === 3 ? " Auto-gravplan!" : "";
+        showToast(`${newLvl.label}! Agg var ${newLvl.eggInterval}:e sek${unlockMsg}`);
         console.log("Queen move: DONE");
       }
       return; // Inga ägg under flytt
@@ -1319,67 +1323,7 @@ scene("game", () => {
             showToast(`Niv ${next.level}: ${parts.join(" + ")}`);
           }
         }
-        // Prioritet 3: Kammare-tap
-        else if (colony.grid[gy][gx].type === "chamber" && Math.abs(gx - colony.queenX) <= chamberRadius(colony) && Math.abs(gy - colony.queenY) <= chamberRadius(colony)) {
-          const tileEmpty = !colony.eggs.some(e => e.x === gx && e.y === gy)
-            && !colony.aphidFarms.some(f => f.x === gx && f.y === gy)
-            && !colony.mushroomFarms.some(f => f.x === gx && f.y === gy)
-            && !colony.waterSources.some(f => f.x === gx && f.y === gy);
-          const farmsAvailable = colony.mushroomUnlocked || colony.waterUnlocked;
-          const timeSinceLast2 = (now - lastTapTime) * 1000;
-          const sameArea2 = Math.abs(gx - lastTapGx) <= 1 && Math.abs(gy - lastTapGy) <= 1;
-
-          if (tileEmpty && farmsAvailable) {
-            // Tom kammare + farmar upplåsta → bygge-flöde
-            if (timeSinceLast2 < DOUBLE_TAP_MS && sameArea2 && colony.pendingBuild) {
-              // Dubbeltap = bekräfta bygge
-              const fc = FARM_COST[colony.pendingBuild];
-              const canAfford = colony.food >= (fc.food || 0) && colony.protein >= (fc.protein || 0) && colony.water >= (fc.water || 0);
-              if (canAfford) {
-                colony.food -= (fc.food || 0); colony.protein -= (fc.protein || 0); colony.water -= (fc.water || 0);
-                if (colony.pendingBuild === "mushroom") {
-                  colony.mushroomFarms.push({ x: gx, y: gy, timer: 0 });
-                  showToast(`Svampodling byggd! (${colony.mushroomFarms.length})`);
-                } else {
-                  colony.waterSources.push({ x: gx, y: gy, timer: 0 });
-                  showToast(`Vattenkälla byggd! (${colony.waterSources.length})`);
-                }
-                colony.pendingBuild = null;
-              } else {
-                showToast(`Inte råd! ${fc.label}: ${fc.food || 0}S ${fc.protein || 0}P ${fc.water || 0}V`);
-              }
-              lastTapTime = 0;
-            } else {
-              // Singeltap = cykla byggval
-              const opts = [];
-              if (colony.mushroomUnlocked) opts.push("mushroom");
-              if (colony.waterUnlocked) opts.push("water");
-              const idx = opts.indexOf(colony.pendingBuild);
-              colony.pendingBuild = opts[(idx + 1) % opts.length];
-              const fc = FARM_COST[colony.pendingBuild];
-              showToast(`Bygg: ${fc.label} (${fc.food || 0}S ${fc.protein || 0}P ${fc.water || 0}V) — dubbeltap`);
-              lastTapTime = now; lastTapGx = gx; lastTapGy = gy;
-            }
-          } else if (timeSinceLast2 < DOUBLE_TAP_MS && sameArea2) {
-            // Dubbeltap = pausa/starta ägg
-            colony.eggsPaused = !colony.eggsPaused;
-            showToast(colony.eggsPaused ? "Ägg pausade" : "Ägg igång");
-            lastTapTime = 0;
-          } else if (colony.queenLevel >= 2) {
-            // Singeltap nivå 2+ = cykla äggtyp
-            const types = ["worker", "scout"];
-            const idx = types.indexOf(colony.nextEggType);
-            colony.nextEggType = types[(idx + 1) % types.length];
-            const labels = { worker: "Arbetare", scout: "Spejare" };
-            const cost = EGG_COST[colony.nextEggType];
-            showToast(`Nästa: ${labels[colony.nextEggType]} (${cost.food}S ${cost.protein}P)`);
-            lastTapTime = now; lastTapGx = gx; lastTapGy = gy;
-          } else {
-            // Singeltap nivå 1 = pausa
-            colony.eggsPaused = !colony.eggsPaused;
-            showToast(colony.eggsPaused ? "Ägg pausade" : "Ägg igång");
-          }
-        }
+        // Kammare-tap gör inget (äggtyp/paus styrs via HUD-knappar)
         // Avbryt grävplan
         else if (colony.digPlan.some(d => d.x === gx && d.y === gy)) {
           colony.digPlan = colony.digPlan.filter(d => d.x !== gx && d.y !== gy);
@@ -1441,6 +1385,27 @@ scene("game", () => {
   add([text("Hem", { size: 14 }), pos(w - 35, 10), fixed(), anchor("center"), color(WHITE), z(102)]);
   homeBtn.onClick(() => { camX = colony.queenX * TILE + TILE / 2; camY = colony.queenY * TILE + TILE / 2; zoomLevel = ZOOM_DEFAULT; });
 
+  // Paus-knapp
+  const pauseBtn = add([rect(36, 28, { radius: 4 }), pos(w - 60, 36), fixed(), color(80, 60, 40), opacity(0.7), z(101), area()]);
+  const pauseLabel = add([text("II", { size: 12 }), pos(w - 42, 42), fixed(), anchor("center"), color(WHITE), z(102)]);
+  pauseBtn.onClick(() => {
+    colony.eggsPaused = !colony.eggsPaused;
+    showToast(colony.eggsPaused ? "Agg pausade" : "Agg igang");
+  });
+
+  // Äggtyp-knapp (bara synlig nivå 2+)
+  const eggTypeBtn = add([rect(36, 28, { radius: 4 }), pos(w - 102, 36), fixed(), color(60, 80, 120), opacity(0), z(101), area()]);
+  const eggTypeLabel = add([text("", { size: 11 }), pos(w - 84, 42), fixed(), anchor("center"), color(WHITE), z(102)]);
+  eggTypeBtn.onClick(() => {
+    if (colony.queenLevel < 2) return;
+    const types = ["worker", "scout"];
+    const idx = types.indexOf(colony.nextEggType);
+    colony.nextEggType = types[(idx + 1) % types.length];
+    const labels = { worker: "Arbetare", scout: "Spejare" };
+    const cost = EGG_COST[colony.nextEggType];
+    showToast(`Nasta: ${labels[colony.nextEggType]} (${cost.food}S ${cost.protein}P)`);
+  });
+
   const toastLabel = add([text("", { size: 12, width: w - 20 }), pos(w / 2, height() - 40), fixed(), anchor("center"), color(255, 200, 80), opacity(0), z(103)]);
   let hoverGx = -1, hoverGy = -1;
 
@@ -1462,10 +1427,18 @@ scene("game", () => {
     const scoutCount = antEntities.filter(e => e.ant.type === "scout").length;
     hudAnts.text = scoutCount > 0 ? `Myror: ${colony.antCount} (${scoutCount}S)` : `Myror: ${colony.antCount}`;
     const readyEggs = colony.eggs.filter(e => e.age >= EGG_MIN_HATCH).length;
-    const pauseTag = colony.eggsPaused ? " PAUS" : "";
-    const typeTag = colony.queenLevel >= 2 ? (colony.nextEggType === "scout" ? " (Spej)" : " (Arb)") : "";
-    const lvlLabel = colony.queenMoving ? "Flyttar..." : `Niv ${colony.queenLevel}${pauseTag}${typeTag}`;
-    hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} | Ägg: ${readyEggs}/${colony.eggs.length}` : lvlLabel;
+    const lvlLabel = colony.queenMoving ? "Flyttar..." : `Niv ${colony.queenLevel}`;
+    hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} | Agg: ${readyEggs}/${colony.eggs.length}` : lvlLabel;
+    // Paus-knapp visuellt
+    pauseLabel.text = colony.eggsPaused ? ">" : "II";
+    pauseBtn.color = colony.eggsPaused ? rgb(120, 60, 40) : rgb(80, 60, 40);
+    // Äggtyp-knapp (bara nivå 2+)
+    if (colony.queenLevel >= 2) {
+      eggTypeBtn.opacity = 0.7;
+      const tl = colony.nextEggType === "scout" ? "Spej" : "Arb";
+      eggTypeLabel.text = tl;
+      eggTypeBtn.color = colony.nextEggType === "scout" ? rgb(COL_SCOUT[0], COL_SCOUT[1], COL_SCOUT[2]) : rgb(80, 60, 40);
+    } else { eggTypeBtn.opacity = 0; eggTypeLabel.text = ""; }
     const sec = Math.floor(time() - colony.startTime);
     hudTime.text = `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
     hudSugar.text = `Socker: ${colony.food}` + (colony.aphidFarms.length > 0 ? ` (+${colony.aphidFarms.length})` : "");
