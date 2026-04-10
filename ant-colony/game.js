@@ -1433,9 +1433,9 @@ scene("game", () => {
     hudEggs.text = colony.eggs.length > 0 ? `${lvlLabel} ${readyEggs}/${colony.eggs.length}` : lvlLabel;
     const sec = Math.floor(time() - colony.startTime);
     hudTime.text = `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
-    hudSugar.text = `S:${colony.food}` + (colony.aphidFarms.length > 0 ? `(+${colony.aphidFarms.length})` : "");
-    hudProtein.text = `P:${colony.protein}` + (colony.mushroomFarms.length > 0 ? `(+${colony.mushroomFarms.length})` : "");
-    hudWater.text = `V:${colony.water}` + (colony.waterSources.length > 0 ? `(+${colony.waterSources.length})` : "");
+    hudSugar.text = `Socker: ${colony.food}` + (colony.aphidFarms.length > 0 ? ` (+${colony.aphidFarms.length})` : "");
+    hudProtein.text = `Protein: ${colony.protein}` + (colony.mushroomFarms.length > 0 ? ` (+${colony.mushroomFarms.length})` : "");
+    hudWater.text = `Vatten: ${colony.water}` + (colony.waterSources.length > 0 ? ` (+${colony.waterSources.length})` : "");
     hudWater.color = colony.dehydrated ? rgb(255, 80, 80) : rgb(100, 160, 220);
     // Kontroller nere
     pauseLabel.text = colony.eggsPaused ? "Agg: AV" : "Agg: PA";
