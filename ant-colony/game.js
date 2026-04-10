@@ -1044,7 +1044,12 @@ scene("game", () => {
     // Sniffa varje steg (avslöja tiles runt sig)
     const found = scoutSniff(colony, ant.gridX, ant.gridY);
     for (const r of found) {
-      showToast(`Spejare: ${r.resource.label}`);
+      if (colony.queenLevel >= 3 && colony.digPlan.length < maxDigPlans(colony) * 8) {
+        addDigPlan(r.x, r.y);
+        showToast(`Spejare: ${r.resource.label} - gravplan!`);
+      } else {
+        showToast(`Spejare: ${r.resource.label}`);
+      }
     }
 
     ant.replanTimer -= elapsed;
