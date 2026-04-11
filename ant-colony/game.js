@@ -89,9 +89,25 @@ const COL_EGG = [245, 235, 210];
 const COL_EGG_READY = [180, 255, 160];
 const COL_SCOUT = [60, 130, 180];
 const COL_SCOUT_EGG = [210, 225, 245];
+const COL_SOLDIER = [140, 40, 30];
+const COL_SOLDIER_EGG = [235, 210, 200];
+const COL_SPIDER = [30, 15, 10];
+const COL_POISON = [120, 50, 160];
 
 const SCOUT_SPEED = 90;           // 1.5× worker
 const SCOUT_SNIFF_RADIUS = 4;     // doftsinne — avslöjar 9×9
+const SOLDIER_SPEED = 75;         // 1.25× worker
+
+// Strid
+const ANT_STATS = {
+  worker:  { hp: 1, dps: 0.5 },
+  scout:   { hp: 1, dps: 0.3 },
+  soldier: { hp: 3, dps: 2.0 },
+};
+const SPIDER_HP = 3;
+const SPIDER_DPS = 1.0;           // 1 dmg/sek → dödar worker direkt
+const SPIDER_SPEED = 40;          // långsammare än myror
+const THREAT_BASE_INTERVAL = 75;  // sek mellan spindlar
 
 const MUSHROOM_INTERVAL = 12;
 const WATER_SRC_INTERVAL = 15;
@@ -135,6 +151,9 @@ function createColony() {
     queenY: QUEEN_Y,
     eggsPaused: false,
     nextEggType: "worker",
+    threats: [],         // [{type, entity, gridX, gridY, hp, path, pathIdx, state, fightTimer}]
+    threatTimer: 0,
+    queenHits: 0,
     mushroomFarms: [],      // [{x, y, timer}]
     waterSources: [],       // [{x, y, timer}]
   };
@@ -211,6 +230,14 @@ function initGrid(col) {
           t.resource = pickResource(y);
     }
 
+  // Giftsvamp (~3% av dirt djup 15+, inte nära start)
+  for (let y = 15; y < GRID_H; y++)
+    for (let x = 0; x < GRID_W; x++) {
+      const t = col.grid[y][x];
+      if (t.type === "dirt" && !t.resource && Math.random() < 0.03)
+        t.hazard = "poison";
+    }
+
   // Ingångshål (rad 1)
   col.grid[ENTRANCE_Y][ENTRANCE_X] = { type: "tunnel", revealed: true, rockVariant: 0, resource: null, grains: 0, grainsMax: 0 };
 
@@ -265,8 +292,12 @@ function scoutSniff(col, gx, gy) {
       if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) continue;
       const wasRevealed = col.grid[ny][nx].revealed;
       col.grid[ny][nx].revealed = true;
-      if (!wasRevealed && col.grid[ny][nx].resource && col.grid[ny][nx].resource.tripsLeft > 0)
-        found.push({ x: nx, y: ny, resource: col.grid[ny][nx].resource });
+      if (!wasRevealed) {
+        if (col.grid[ny][nx].resource && col.grid[ny][nx].resource.tripsLeft > 0)
+          found.push({ x: nx, y: ny, resource: col.grid[ny][nx].resource });
+        if (col.grid[ny][nx].hazard === "poison")
+          showToastGlobal("Spejare: Gift!");
+      }
     }
   return found;
 }
@@ -586,7 +617,7 @@ function saveGame(col, antEntities) {
     state: e.ant.state,
     carrying: e.ant.carrying,
     carrySand: e.ant.carrySand,
-    type: e.ant.type || "worker",
+    type: e.ant.type || "worker", hp: e.ant.hp,
   }));
   const data = {
     grid: col.grid.map(row => row.map(t => ({
@@ -598,6 +629,7 @@ function saveGame(col, antEntities) {
     queenLevel: col.queenLevel, queenX: col.queenX, queenY: col.queenY,
     queenTimer: col.queenTimer, waterTimer: col.waterTimer,
     dehydrated: col.dehydrated, eggsPaused: col.eggsPaused, nextEggType: col.nextEggType,
+    queenHits: col.queenHits || 0,
     aphidFarms: col.aphidFarms,
     mushroomFarms: col.mushroomFarms, waterSources: col.waterSources,
     sandPiles: col.sandPiles, sandTotal: col.sandTotal,
@@ -667,6 +699,7 @@ scene("game", () => {
     colony.queenX = saved.queenX; colony.queenY = saved.queenY;
     colony.queenTimer = saved.queenTimer; colony.waterTimer = saved.waterTimer;
     colony.dehydrated = saved.dehydrated; colony.eggsPaused = saved.eggsPaused || false; colony.nextEggType = saved.nextEggType || "worker";
+    colony.queenHits = saved.queenHits || 0;
     colony.aphidFarms = saved.aphidFarms || [];
     colony.mushroomFarms = saved.mushroomFarms || []; colony.waterSources = saved.waterSources || [];
     colony.sandPiles = saved.sandPiles || []; colony.sandTotal = saved.sandTotal || 0;
@@ -712,23 +745,25 @@ scene("game", () => {
   const antEntities = [];
 
   function spawnAnt(gx, gy, type = "worker") {
-    const isScout = type === "scout";
-    const col0 = isScout ? COL_SCOUT : COL_ANT;
+    const col0 = type === "scout" ? COL_SCOUT : type === "soldier" ? COL_SOLDIER : COL_ANT;
+    const radius = type === "soldier" ? 3.5 : type === "scout" ? 2.5 : 3;
+    const speed = type === "scout" ? SCOUT_SPEED : type === "soldier" ? SOLDIER_SPEED : 60;
+    const stats = ANT_STATS[type] || ANT_STATS.worker;
     const ant = add([
-      circle(isScout ? 2.5 : 3), pos(gx * TILE + TILE / 2, gy * TILE + TILE / 2),
+      circle(radius), pos(gx * TILE + TILE / 2, gy * TILE + TILE / 2),
       anchor("center"), color(col0[0], col0[1], col0[2]), z(10), "ant",
       {
-        gridX: gx, gridY: gy, path: null, pathIdx: 0,
-        speed: isScout ? SCOUT_SPEED : 60,
+        gridX: gx, gridY: gy, path: null, pathIdx: 0, speed,
         state: "idle", digTarget: null, replanTimer: 0,
-        carrying: null,         // resurs
-        carrySand: false,       // bär sand?
-        resourceSource: null,   // {x,y} var resursen hämtades
-        type,                   // "worker" | "scout"
-        scoutTarget: null,      // {x,y} spelarens riktning (bara scout)
+        carrying: null, carrySand: false, resourceSource: null,
+        type, scoutTarget: null,
+        hp: stats.hp, maxHp: stats.hp, dps: stats.dps,
+        fightTarget: null,      // threat reference
+        healTimer: 0,
       },
     ]);
-    const head = add([circle(isScout ? 1.5 : 2), pos(ant.pos.x + 4, ant.pos.y - 2), anchor("center"),
+    const headR = type === "soldier" ? 2.5 : type === "scout" ? 1.5 : 2;
+    const head = add([circle(headR), pos(ant.pos.x + 4, ant.pos.y - 2), anchor("center"),
       color(col0[0] + 20, col0[1] + 15, col0[2] + 10), z(11)]);
     antEntities.push({ ant, head });
     colony.antCount++;
@@ -736,7 +771,10 @@ scene("game", () => {
   }
 
   if (saved && saved.ants) {
-    for (const a of saved.ants) spawnAnt(a.gx, a.gy, a.type || "worker");
+    for (const a of saved.ants) {
+      const spawned = spawnAnt(a.gx, a.gy, a.type || "worker");
+      if (a.hp !== undefined) spawned.hp = a.hp;
+    }
   } else {
     for (const [sx, sy] of [[QUEEN_X - 1, QUEEN_Y], [QUEEN_X + 1, QUEEN_Y], [QUEEN_X, QUEEN_Y + 1]])
       spawnAnt(sx, sy);
@@ -752,7 +790,9 @@ scene("game", () => {
   // === ÄGG ===
   function layEgg() {
     // Nivå-gate: scout kräver nivå 2+
-    const eggType = (colony.nextEggType === "scout" && colony.queenLevel >= 2) ? "scout" : "worker";
+    let eggType = "worker";
+    if (colony.nextEggType === "scout" && colony.queenLevel >= 2) eggType = "scout";
+    else if (colony.nextEggType === "soldier" && colony.queenLevel >= 4) eggType = "soldier";
     const cost = EGG_COST[eggType];
     if (colony.food < cost.food || colony.protein < cost.protein) return;
     const r = chamberRadius(colony);
@@ -772,7 +812,7 @@ scene("game", () => {
     if (spots.length === 0) return;
     colony.food -= cost.food; colony.protein -= cost.protein;
     const spot = spots[Math.floor(Math.random() * spots.length)];
-    const eggCol = eggType === "scout" ? COL_SCOUT_EGG : COL_EGG;
+    const eggCol = eggType === "scout" ? COL_SCOUT_EGG : eggType === "soldier" ? COL_SOLDIER_EGG : COL_EGG;
     const eggEntity = add([circle(2.5), pos(spot.x * TILE + TILE / 2, spot.y * TILE + TILE / 2),
       anchor("center"), color(eggCol[0], eggCol[1], eggCol[2]), z(12), opacity(0.9)]);
     colony.eggs.push({ x: spot.x, y: spot.y, age: 0, entity: eggEntity, type: eggType });
@@ -860,8 +900,23 @@ scene("game", () => {
     for (const entry of antEntities) {
       const ant = entry.ant;
 
-      // Spejare har egen logik
+      // Spejare/soldater har egen logik
       if (ant.type === "scout") { updateScout(ant, entry, elapsed); continue; }
+      if (ant.type === "soldier") { updateSoldier(ant, entry, elapsed); continue; }
+
+      // Workers: fighting/rushing states (mot spindlar)
+      if (ant.state === "fighting") {
+        if (!ant.fightTarget || ant.fightTarget.hp <= 0) { ant.state = "idle"; ant.fightTarget = null; ant.replanTimer = 0.5; }
+        continue;
+      }
+      if (ant.state === "rushing") {
+        if (ant.fightTarget && ant.fightTarget.hp > 0 && ant.path && ant.pathIdx < ant.path.length) {
+          moveAnt(ant, elapsed);
+          if (ant.fightTarget && Math.abs(ant.gridX - ant.fightTarget.gridX) <= 1 && Math.abs(ant.gridY - ant.fightTarget.gridY) <= 1)
+            ant.state = "fighting";
+        } else { ant.state = "idle"; ant.fightTarget = null; ant.path = null; ant.replanTimer = 0.5; }
+        continue;
+      }
 
       ant.replanTimer -= elapsed;
 
@@ -923,6 +978,14 @@ scene("game", () => {
             revealAround(colony, tgt.x, tgt.y);
 
             if (colony.grid[tgt.y][tgt.x].grains <= 0) {
+              // Giftsvamp?
+              if (colony.grid[tgt.y][tgt.x].hazard === "poison") {
+                colony.grid[tgt.y][tgt.x].hazard = null;
+                showToast("Giftsvamp! Myra dod!");
+                killAnt(entry);
+                completeDig(colony, tgt.x, tgt.y);
+                continue; // myran är död
+              }
               // Rutan klar! Bli tunnel
               completeDig(colony, tgt.x, tgt.y);
               // Partiklar
@@ -1100,6 +1163,220 @@ scene("game", () => {
       entry.head.color = rgb(COL_SCOUT[0] + 30, COL_SCOUT[1] + 20, COL_SCOUT[2] + 10); }
   }
 
+  // === SOLDATER ===
+  function updateSoldier(ant, entry, elapsed) {
+    ant.replanTimer -= elapsed;
+
+    // Heal i kammare
+    if (colony.grid[ant.gridY] && colony.grid[ant.gridY][ant.gridX] &&
+        colony.grid[ant.gridY][ant.gridX].type === "chamber" && ant.hp < ant.maxHp) {
+      ant.healTimer += elapsed;
+      if (ant.healTimer >= 30) { ant.healTimer = 0; ant.hp = Math.min(ant.maxHp, ant.hp + 1); }
+    }
+
+    // Fighting — hantera strid (delegeras till updateThreats)
+    if (ant.state === "fighting") {
+      // Strid hanteras i updateThreats
+      if (!ant.fightTarget || ant.fightTarget.hp <= 0) {
+        ant.state = "idle"; ant.fightTarget = null; ant.replanTimer = 0.5;
+      }
+      return;
+    }
+
+    // Detect hot inom 3 tiles
+    const nearThreat = findNearThreat(ant.gridX, ant.gridY, 5);
+    if (nearThreat) {
+      const path = findPath(colony, ant.gridX, ant.gridY, nearThreat.gridX, nearThreat.gridY);
+      if (path) { ant.path = path; ant.pathIdx = 0; ant.state = "rushing"; ant.fightTarget = nearThreat; ant.replanTimer = 3; return; }
+    }
+
+    // Rushing mot hot
+    if (ant.state === "rushing") {
+      if (ant.fightTarget && ant.fightTarget.hp > 0 && ant.path && ant.pathIdx < ant.path.length) {
+        moveAnt(ant, elapsed);
+      } else {
+        ant.state = "idle"; ant.fightTarget = null; ant.path = null; ant.replanTimer = 0.5;
+      }
+      // Nära nog? → fighting
+      if (ant.fightTarget && Math.abs(ant.gridX - ant.fightTarget.gridX) <= 1 && Math.abs(ant.gridY - ant.fightTarget.gridY) <= 1) {
+        ant.state = "fighting";
+      }
+      entry.ant.color = rgb(COL_SOLDIER[0], COL_SOLDIER[1], COL_SOLDIER[2]);
+      if (entry.head) { entry.head.pos.x = ant.pos.x + 4; entry.head.pos.y = ant.pos.y - 2; }
+      return;
+    }
+
+    // IDLE — patrullera
+    if (ant.state === "idle" && ant.replanTimer <= 0) {
+      const target = randomTunnelTile(colony);
+      if (target) {
+        const path = findPath(colony, ant.gridX, ant.gridY, target.x, target.y);
+        if (path && path.length > 1) { ant.path = path; ant.pathIdx = 0; ant.state = "patrolling"; }
+      }
+      ant.replanTimer = 3 + Math.random() * 4;
+    }
+
+    // Patrolling
+    if (ant.state === "patrolling") {
+      if (ant.path && ant.pathIdx < ant.path.length) moveAnt(ant, elapsed);
+      else { ant.state = "idle"; ant.path = null; ant.replanTimer = 1 + Math.random() * 2; }
+    }
+
+    // Visuellt
+    entry.ant.color = rgb(COL_SOLDIER[0], COL_SOLDIER[1], COL_SOLDIER[2]);
+    if (entry.head) { entry.head.pos.x = ant.pos.x + 4; entry.head.pos.y = ant.pos.y - 2;
+      entry.head.color = rgb(COL_SOLDIER[0] + 30, COL_SOLDIER[1] + 15, COL_SOLDIER[2] + 10); }
+  }
+
+  // Hitta närmaste hot
+  function findNearThreat(gx, gy, radius) {
+    let best = null, bestDist = Infinity;
+    for (const t of colony.threats) {
+      if (t.hp <= 0) continue;
+      const d = Math.abs(t.gridX - gx) + Math.abs(t.gridY - gy);
+      if (d <= radius && d < bestDist) { bestDist = d; best = t; }
+    }
+    return best;
+  }
+
+  // Döda en myra
+  function killAnt(entry) {
+    if (entry.ant) destroy(entry.ant);
+    if (entry.head) destroy(entry.head);
+    const idx = antEntities.indexOf(entry);
+    if (idx >= 0) antEntities.splice(idx, 1);
+    colony.antCount--;
+    // Partiklar
+    for (let i = 0; i < 3; i++)
+      add([circle(rand(1, 2)), pos(entry.ant.pos.x + rand(-6, 6), entry.ant.pos.y + rand(-6, 6)),
+        color(200, 50, 30), opacity(0.8), z(20), lifespan(0.6, { fade: 0.3 }), move(rand(0, 360), rand(15, 30))]);
+  }
+
+  // === SPINDLAR & HOT ===
+  function spawnSpider() {
+    // Hitta fog-tile intill tunnel (hotet kommer från mörkret)
+    const candidates = [];
+    for (let y = 10; y < GRID_H; y++)
+      for (let x = 0; x < GRID_W; x++) {
+        if (colony.grid[y][x].revealed) continue;
+        if (colony.grid[y][x].type === "rock") continue;
+        // Intill tunnel?
+        for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H && isWalkable(colony.grid[ny][nx].type)) {
+            candidates.push({ x: nx, y: ny }); break; // spindeln spawnar i tunneln
+          }
+        }
+      }
+    if (candidates.length === 0) return;
+    const spot = candidates[Math.floor(Math.random() * candidates.length)];
+    const entity = add([circle(4), pos(spot.x * TILE + TILE / 2, spot.y * TILE + TILE / 2),
+      anchor("center"), color(COL_SPIDER[0], COL_SPIDER[1], COL_SPIDER[2]), z(12)]);
+    colony.threats.push({
+      type: "spider", entity, gridX: spot.x, gridY: spot.y,
+      hp: SPIDER_HP, path: null, pathIdx: 0, state: "moving", fightTimer: 0,
+    });
+    showToast("Spindel upptackt!");
+  }
+
+  function updateThreats(elapsed) {
+    // Spawn timer
+    if (colony.queenLevel >= 2) {
+      colony.threatTimer += elapsed;
+      const interval = Math.max(30, THREAT_BASE_INTERVAL - colony.tunnelCount * 0.3);
+      if (colony.threatTimer >= interval) {
+        colony.threatTimer = 0;
+        spawnSpider();
+      }
+    }
+
+    // Uppdatera varje hot
+    for (let ti = colony.threats.length - 1; ti >= 0; ti--) {
+      const threat = colony.threats[ti];
+      if (threat.hp <= 0) {
+        // Dö
+        if (threat.entity) destroy(threat.entity);
+        colony.threats.splice(ti, 1);
+        showToast("Spindel besegrad!");
+        continue;
+      }
+
+      // Spindel rör sig mot drottningen
+      if (threat.state === "moving") {
+        if (!threat.path || threat.pathIdx >= threat.path.length) {
+          threat.path = findPath(colony, threat.gridX, threat.gridY, colony.queenX, colony.queenY);
+          threat.pathIdx = 0;
+        }
+        if (threat.path && threat.pathIdx < threat.path.length) {
+          const target = threat.path[threat.pathIdx];
+          const tx = target.x * TILE + TILE / 2, ty = target.y * TILE + TILE / 2;
+          const dx = tx - threat.entity.pos.x, dy = ty - threat.entity.pos.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 2) {
+            threat.gridX = target.x; threat.gridY = target.y; threat.pathIdx++;
+          } else {
+            const spd = SPIDER_SPEED * elapsed;
+            threat.entity.pos.x += (dx / dist) * spd;
+            threat.entity.pos.y += (dy / dist) * spd;
+          }
+        }
+      }
+
+      // Nått drottningen?
+      if (threat.gridX === colony.queenX && threat.gridY === colony.queenY) {
+        colony.queenHits++;
+        threat.hp = 0;
+        showToast(`Drottningen attackerad! (${colony.queenHits}/3)`);
+        if (colony.queenHits >= 3) {
+          showToast("GAME OVER - Drottningen har fallit!");
+          wait(2, () => { clearSave(); go("menu"); });
+        }
+        continue;
+      }
+
+      // Strid — myror intill spindeln slåss
+      threat.fightTimer += elapsed;
+      if (threat.fightTimer >= 0.5) {
+        threat.fightTimer = 0;
+        // Spindeln slår en random myra intill
+        const nearAnts = antEntities.filter(e =>
+          Math.abs(e.ant.gridX - threat.gridX) <= 1 && Math.abs(e.ant.gridY - threat.gridY) <= 1
+        );
+        if (nearAnts.length > 0) {
+          threat.state = "fighting";
+          // Spindeln skadar en myra
+          const victim = nearAnts[Math.floor(Math.random() * nearAnts.length)];
+          victim.ant.hp -= SPIDER_DPS * 0.5; // per half-second tick
+          if (victim.ant.hp <= 0) killAnt(victim);
+          // Alla myror intill skadar spindeln
+          for (const a of nearAnts) {
+            if (a.ant.hp > 0) threat.hp -= a.ant.dps * 0.5;
+          }
+        } else {
+          threat.state = "moving";
+        }
+      }
+
+      // Alla myror: rusa mot spindel om nära
+      for (const entry of antEntities) {
+        const ant = entry.ant;
+        if (ant.state === "fighting" || ant.state === "rushing") continue;
+        if (ant.type === "soldier") continue; // soldater hanterar sig själva
+        const d = Math.abs(ant.gridX - threat.gridX) + Math.abs(ant.gridY - threat.gridY);
+        if (d <= 3 && d > 0) {
+          // Rush mot hotet!
+          const path = findPath(colony, ant.gridX, ant.gridY, threat.gridX, threat.gridY);
+          if (path) {
+            ant.path = path; ant.pathIdx = 0; ant.state = "rushing";
+            ant.fightTarget = threat; ant.replanTimer = 3;
+          }
+        }
+        // Adjacent? → fighting
+        if (d <= 1 && ant.fightTarget === threat) ant.state = "fighting";
+      }
+    }
+  }
+
   // === BLADLÖSS & VATTEN & DROTTNING ===
   function updateAphids(elapsed) {
     for (const farm of colony.aphidFarms) {
@@ -1270,7 +1547,7 @@ scene("game", () => {
           if (spot) colony.waterSources.push({ x: spot.x, y: spot.y, timer: farm.timer });
         }
 
-        const unlockMsg = colony.queenLevel === 2 ? " Spejare!" : colony.queenLevel === 3 ? " Auto-gravplan!" : "";
+        const unlockMsg = colony.queenLevel === 2 ? " Spejare!" : colony.queenLevel === 3 ? " Auto-gravplan!" : colony.queenLevel === 4 ? " Soldater!" : "";
         showToast(`${newLvl.label}! Agg var ${newLvl.eggInterval}:e sek${unlockMsg}`);
         console.log("Queen move: DONE");
       }
@@ -1405,10 +1682,10 @@ scene("game", () => {
   const eggTypeLabel = add([text("", { size: 12 }), pos(w - 114, btnY + btnH / 2), fixed(), anchor("center"), color(WHITE), z(102)]);
   eggTypeBtn.onClick(() => {
     if (colony.queenLevel < 2) return;
-    const types = ["worker", "scout"];
+    const types = colony.queenLevel >= 4 ? ["worker", "scout", "soldier"] : ["worker", "scout"];
     const idx = types.indexOf(colony.nextEggType);
     colony.nextEggType = types[(idx + 1) % types.length];
-    const labels = { worker: "Arbetare", scout: "Spejare" };
+    const labels = { worker: "Arbetare", scout: "Spejare", soldier: "Soldat" };
     const cost = EGG_COST[colony.nextEggType];
     showToast(`Nasta: ${labels[colony.nextEggType]} (${cost.food}S ${cost.protein}P)`);
   });
@@ -1421,7 +1698,7 @@ scene("game", () => {
     const elapsed = dt();
     camPos(camX, camY); camScale(zoomLevel);
     try {
-    updateAnts(elapsed); updateQueen(elapsed); updateEggs(elapsed); updateAphids(elapsed); updateMushroomFarms(elapsed); updateWaterSources(elapsed); updateWater(elapsed);
+    updateAnts(elapsed); updateQueen(elapsed); updateEggs(elapsed); updateAphids(elapsed); updateMushroomFarms(elapsed); updateWaterSources(elapsed); updateWater(elapsed); updateThreats(elapsed);
     } catch(e) { console.error("UPDATE CRASH:", e); }
 
     // Auto-save var 10:e sekund
@@ -1447,8 +1724,11 @@ scene("game", () => {
     pauseBtn.color = colony.eggsPaused ? rgb(120, 50, 40) : rgb(60, 90, 50);
     if (colony.queenLevel >= 2) {
       eggTypeBtn.opacity = 0.8;
-      eggTypeLabel.text = colony.nextEggType === "scout" ? "Spej" : "Arb";
-      eggTypeBtn.color = colony.nextEggType === "scout" ? rgb(COL_SCOUT[0], COL_SCOUT[1], COL_SCOUT[2]) : rgb(80, 60, 40);
+      const tLabels = { worker: "Arb", scout: "Spej", soldier: "Sol" };
+      eggTypeLabel.text = tLabels[colony.nextEggType] || "Arb";
+      const tColors = { worker: [80, 60, 40], scout: COL_SCOUT, soldier: COL_SOLDIER };
+      const tc = tColors[colony.nextEggType] || tColors.worker;
+      eggTypeBtn.color = rgb(tc[0], tc[1], tc[2]);
     } else { eggTypeBtn.opacity = 0; eggTypeLabel.text = ""; }
 
     if (toastTimer > 0) { toastTimer -= elapsed; toastLabel.text = toastText; toastLabel.opacity = Math.min(1, toastTimer * 2); }
@@ -1494,6 +1774,14 @@ scene("game", () => {
             const gy2 = py + 8 + Math.floor(g / 3) * 12;
             drawCircle({ pos: vec2(gx2, gy2), radius: 2, color: rgb(80, 55, 30), opacity: 0.6 });
           }
+        }
+
+        // Giftsvamp — lila prickar på avslöjad tile
+        if (tile.type === "dirt" && tile.revealed && tile.hazard === "poison") {
+          const pulse = Math.sin(time() * 3 + x * 2 + y) * 0.15 + 0.6;
+          drawCircle({ pos: vec2(px + 8, py + 10), radius: 2, color: rgb(COL_POISON[0], COL_POISON[1], COL_POISON[2]), opacity: pulse });
+          drawCircle({ pos: vec2(px + 20, py + 22), radius: 1.5, color: rgb(COL_POISON[0], COL_POISON[1] + 30, COL_POISON[2]), opacity: pulse * 0.7 });
+          drawCircle({ pos: vec2(px + 14, py + 16), radius: 2.5, color: rgb(COL_POISON[0] - 20, COL_POISON[1], COL_POISON[2] + 20), opacity: pulse * 0.5 });
         }
 
         // Arbetardoft — dirt intill tunnel med resurs får färgmarkering
@@ -1599,6 +1887,39 @@ scene("game", () => {
         color: rgb(COL_SAND_PILE[0] + 20, COL_SAND_PILE[1] + 15, COL_SAND_PILE[2] + 10),
         opacity: 0.3,
       });
+    }
+
+    // Soldat HP-bar
+    for (const entry of antEntities) {
+      if (entry.ant.type === "soldier" && entry.ant.hp < entry.ant.maxHp) {
+        const ax = entry.ant.pos.x, ay = entry.ant.pos.y - 6;
+        const w2 = 8, h2 = 2;
+        drawRect({ pos: vec2(ax - w2/2, ay), width: w2, height: h2, color: rgb(60, 20, 20), opacity: 0.8 });
+        drawRect({ pos: vec2(ax - w2/2, ay), width: w2 * (entry.ant.hp / entry.ant.maxHp), height: h2, color: rgb(200, 60, 40), opacity: 0.9 });
+      }
+      // Fighting-animation
+      if (entry.ant.state === "fighting") {
+        const flash = Math.sin(time() * 10) > 0 ? 0.6 : 0;
+        drawCircle({ pos: vec2(entry.ant.pos.x, entry.ant.pos.y), radius: 5, color: rgb(255, 100, 50), opacity: flash * 0.4 });
+      }
+    }
+
+    // Spindel HP-bar
+    for (const threat of colony.threats) {
+      if (threat.hp > 0 && threat.entity) {
+        const tx = threat.entity.pos.x, ty = threat.entity.pos.y - 8;
+        const w2 = 10, h2 = 2;
+        drawRect({ pos: vec2(tx - w2/2, ty), width: w2, height: h2, color: rgb(60, 20, 20), opacity: 0.8 });
+        drawRect({ pos: vec2(tx - w2/2, ty), width: w2 * (threat.hp / SPIDER_HP), height: h2, color: rgb(255, 40, 40), opacity: 0.9 });
+        // Spindel-ben animation
+        const t0 = time() * 4;
+        for (let i = 0; i < 4; i++) {
+          const angle = t0 + i * Math.PI / 2;
+          drawLine({ p1: vec2(threat.entity.pos.x, threat.entity.pos.y),
+            p2: vec2(threat.entity.pos.x + Math.cos(angle) * 6, threat.entity.pos.y + Math.sin(angle) * 6),
+            width: 1, color: rgb(COL_SPIDER[0], COL_SPIDER[1], COL_SPIDER[2]), opacity: 0.7 });
+        }
+      }
     }
 
     // Spejar-doftsinne visuell effekt (pulserande ring)
