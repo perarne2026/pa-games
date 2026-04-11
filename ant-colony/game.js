@@ -1256,7 +1256,7 @@ scene("game", () => {
   function spawnSpider() {
     // Hitta fog-tile intill tunnel (hotet kommer från mörkret)
     const candidates = [];
-    for (let y = 10; y < GRID_H; y++)
+    for (let y = 2; y < GRID_H; y++)
       for (let x = 0; x < GRID_W; x++) {
         if (colony.grid[y][x].revealed) continue;
         if (colony.grid[y][x].type === "rock") continue;
@@ -1268,6 +1268,7 @@ scene("game", () => {
           }
         }
       }
+    console.log("Spider spawn candidates:", candidates.length);
     if (candidates.length === 0) return;
     const spot = candidates[Math.floor(Math.random() * candidates.length)];
     const entity = add([circle(4), pos(spot.x * TILE + TILE / 2, spot.y * TILE + TILE / 2),
@@ -1281,13 +1282,11 @@ scene("game", () => {
 
   function updateThreats(elapsed) {
     // Spawn timer
-    if (colony.queenLevel >= 2) {
-      colony.threatTimer += elapsed;
-      const interval = Math.max(30, THREAT_BASE_INTERVAL - colony.tunnelCount * 0.3);
-      if (colony.threatTimer >= interval) {
-        colony.threatTimer = 0;
-        spawnSpider();
-      }
+    colony.threatTimer += elapsed;
+    const interval = Math.max(30, THREAT_BASE_INTERVAL - colony.tunnelCount * 0.5);
+    if (colony.threatTimer >= interval && colony.tunnelCount >= 15) {
+      colony.threatTimer = 0;
+      spawnSpider();
     }
 
     // Uppdatera varje hot
