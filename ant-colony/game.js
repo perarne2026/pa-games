@@ -365,7 +365,7 @@ function findDigPath(col, targetX, targetY) {
   // Markera ytan som besökt (blockera BFS från att gå via den)
   for (let x = 0; x < GRID_W; x++) visited.add(SURFACE_Y * GRID_W + x);
   let steps = 0;
-  while (queue.length > 0 && steps < 800) {
+  while (queue.length > 0 && steps < 3000) {
     const curr = queue.shift(); steps++;
     for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
       const nx = curr.x + dx, ny = curr.y + dy;
@@ -1044,7 +1044,7 @@ scene("game", () => {
     // Sniffa varje steg (avslöja tiles runt sig)
     const found = scoutSniff(colony, ant.gridX, ant.gridY);
     for (const r of found) {
-      if (colony.queenLevel >= 3 && colony.digPlan.length < maxDigPlans(colony) * 8) {
+      if (colony.queenLevel >= 3) {
         addDigPlan(r.x, r.y);
         showToast(`Spejare: ${r.resource.label} - gravplan!`);
       } else {
