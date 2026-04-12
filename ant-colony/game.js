@@ -151,9 +151,12 @@ function createColony() {
     queenY: QUEEN_Y,
     eggsPaused: false,
     nextEggType: "worker",
-    threats: [],         // [{type, entity, gridX, gridY, hp, path, pathIdx, state, fightTimer}]
+    threats: [],
     threatTimer: 0,
     queenHits: 0,
+    history: [],         // [{t, ants, tunnels, food, protein, water}] var 30s
+    historyTimer: 0,
+    victory: false,
     mushroomFarms: [],      // [{x, y, timer}]
     waterSources: [],       // [{x, y, timer}]
   };
@@ -630,6 +633,7 @@ function saveGame(col, antEntities) {
     queenTimer: col.queenTimer, waterTimer: col.waterTimer,
     dehydrated: col.dehydrated, eggsPaused: col.eggsPaused, nextEggType: col.nextEggType,
     queenHits: col.queenHits || 0,
+    history: col.history || [], victory: col.victory || false, victoryTime: col.victoryTime || 0,
     aphidFarms: col.aphidFarms,
     mushroomFarms: col.mushroomFarms, waterSources: col.waterSources,
     sandPiles: col.sandPiles, sandTotal: col.sandTotal,
@@ -700,6 +704,7 @@ scene("game", () => {
     colony.queenTimer = saved.queenTimer; colony.waterTimer = saved.waterTimer;
     colony.dehydrated = saved.dehydrated; colony.eggsPaused = saved.eggsPaused || false; colony.nextEggType = saved.nextEggType || "worker";
     colony.queenHits = saved.queenHits || 0;
+    colony.history = saved.history || []; colony.victory = saved.victory || false; colony.victoryTime = saved.victoryTime || 0;
     colony.aphidFarms = saved.aphidFarms || [];
     colony.mushroomFarms = saved.mushroomFarms || []; colony.waterSources = saved.waterSources || [];
     colony.sandPiles = saved.sandPiles || []; colony.sandTotal = saved.sandTotal || 0;
@@ -1268,9 +1273,11 @@ scene("game", () => {
           }
         }
       }
-    console.log("Spider spawn candidates:", candidates.length);
-    if (candidates.length === 0) return;
-    const spot = candidates[Math.floor(Math.random() * candidates.length)];
+    // Filtrera bort spots nära drottningen (minst 8 tiles)
+    const safe = candidates.filter(c => Math.abs(c.x - colony.queenX) + Math.abs(c.y - colony.queenY) >= 8);
+    const pool = safe.length > 0 ? safe : candidates;
+    if (pool.length === 0) return;
+    const spot = pool[Math.floor(Math.random() * pool.length)];
     const entity = add([circle(4), pos(spot.x * TILE + TILE / 2, spot.y * TILE + TILE / 2),
       anchor("center"), color(COL_SPIDER[0], COL_SPIDER[1], COL_SPIDER[2]), z(12)]);
     colony.threats.push({
@@ -1705,6 +1712,32 @@ scene("game", () => {
     colony._saveTimer = (colony._saveTimer || 0) + elapsed;
     if (colony._saveTimer >= 10 && !colony.queenMoving) { colony._saveTimer = 0; saveGame(colony, antEntities); }
 
+    // Stats history var 30:e sekund
+    colony.historyTimer += elapsed;
+    if (colony.historyTimer >= 30) {
+      colony.historyTimer = 0;
+      colony.history.push({
+        t: Math.floor(colony.elapsed),
+        ants: colony.antCount, tunnels: colony.tunnelCount,
+        food: colony.food, protein: colony.protein, water: colony.water,
+        level: colony.queenLevel,
+      });
+    }
+
+    // Victory-check: all dirt grävd?
+    if (!colony.victory) {
+      let dirtLeft = 0;
+      for (let y = 1; y < GRID_H; y++)
+        for (let x = 0; x < GRID_W; x++)
+          if (colony.grid[y][x].type === "dirt") dirtLeft++;
+      if (dirtLeft === 0) {
+        colony.victory = true;
+        colony.victoryTime = Math.floor(colony.elapsed);
+        showToast("KOLONI KOMPLETT!");
+        wait(2, () => go("victory"));
+      }
+    }
+
     const score = colony.antCount * 10 + colony.tunnelCount * 2;
     const scoutCount = antEntities.filter(e => e.ant.type === "scout").length;
     hudScore.text = `${score}`;
@@ -1934,6 +1967,76 @@ scene("game", () => {
       }
     }
   });
+});
+
+// === VICTORY SCREEN ===
+scene("victory", () => {
+  const w = width(), h = height();
+  const col = colony;
+
+  add([rect(w, h), pos(0, 0), color(0, 0, 0), opacity(0.9)]);
+  add([text("KOLONI KOMPLETT!", { size: 32 }), pos(w / 2, 30), anchor("top"), color(255, 220, 100)]);
+
+  // Stats
+  const sec = col.victoryTime || Math.floor(col.elapsed || 0);
+  const min = Math.floor(sec / 60);
+  const s = sec % 60;
+  const stats = [
+    `Tid: ${min}:${s.toString().padStart(2, "0")}`,
+    `Myror: ${col.antCount}  Tunnlar: ${col.tunnelCount}`,
+    `Niva: ${col.queenLevel}  Drottning-traff: ${col.queenHits}/3`,
+    `Farmar: ${col.aphidFarms.length}B ${col.mushroomFarms.length}S ${col.waterSources.length}V`,
+  ];
+  for (let i = 0; i < stats.length; i++)
+    add([text(stats[i], { size: 14 }), pos(w / 2, 75 + i * 22), anchor("top"), color(WHITE)]);
+
+  // Graf
+  const hist = col.history || [];
+  if (hist.length > 1) {
+    const gx = 30, gy = 180, gw = w - 60, gh = h - 310;
+    add([rect(gw + 4, gh + 4), pos(gx - 2, gy - 2), color(20, 15, 10), opacity(0.7)]);
+
+    let maxAnts = 1, maxTunnels = 1;
+    for (const p of hist) {
+      if (p.ants > maxAnts) maxAnts = p.ants;
+      if (p.tunnels > maxTunnels) maxTunnels = p.tunnels;
+    }
+    const maxT = hist[hist.length - 1].t || 1;
+
+    add([text("Myror", { size: 10 }), pos(gx, gy - 12), color(COL_ANT[0] + 80, COL_ANT[1] + 60, COL_ANT[2] + 40)]);
+    add([text("Tunnlar", { size: 10 }), pos(gx + 60, gy - 12), color(COL_TUNNEL[0], COL_TUNNEL[1], COL_TUNNEL[2])]);
+    add([text(`${min}:${s.toString().padStart(2, "0")}`, { size: 10 }), pos(gx + gw, gy + gh + 4), anchor("topright"), color(WHITE), opacity(0.5)]);
+
+    onDraw(() => {
+      for (let i = 1; i < hist.length; i++) {
+        const x1 = gx + (hist[i-1].t / maxT) * gw, y1 = gy + gh - (hist[i-1].ants / maxAnts) * gh;
+        const x2 = gx + (hist[i].t / maxT) * gw, y2 = gy + gh - (hist[i].ants / maxAnts) * gh;
+        drawLine({ p1: vec2(x1, y1), p2: vec2(x2, y2), width: 2, color: rgb(COL_ANT[0] + 80, COL_ANT[1] + 60, COL_ANT[2] + 40) });
+      }
+      for (let i = 1; i < hist.length; i++) {
+        const x1 = gx + (hist[i-1].t / maxT) * gw, y1 = gy + gh - (hist[i-1].tunnels / maxTunnels) * gh;
+        const x2 = gx + (hist[i].t / maxT) * gw, y2 = gy + gh - (hist[i].tunnels / maxTunnels) * gh;
+        drawLine({ p1: vec2(x1, y1), p2: vec2(x2, y2), width: 2, color: rgb(COL_TUNNEL[0], COL_TUNNEL[1], COL_TUNNEL[2]) });
+      }
+      for (let i = 1; i < hist.length; i++) {
+        if (hist[i].level > hist[i-1].level) {
+          const lx = gx + (hist[i].t / maxT) * gw;
+          drawLine({ p1: vec2(lx, gy), p2: vec2(lx, gy + gh), width: 1, color: rgb(255, 200, 80), opacity: 0.4 });
+          drawText({ text: `L${hist[i].level}`, pos: vec2(lx + 2, gy + 2), size: 9, color: rgb(255, 200, 80) });
+        }
+      }
+    });
+  }
+
+  // Knappar
+  const btnY = h - 100;
+  const contBtn = add([rect(160, 44, { radius: 8 }), pos(w / 2 - 170, btnY), color(40, 100, 40), opacity(0.85), z(10), area()]);
+  add([text("Fortsatt spela", { size: 18 }), pos(w / 2 - 90, btnY + 22), anchor("center"), color(180, 255, 160), z(11)]);
+  contBtn.onClick(() => go("game"));
+
+  const newBtn = add([rect(130, 44, { radius: 8 }), pos(w / 2 + 10, btnY), color(80, 40, 30), opacity(0.85), z(10), area()]);
+  add([text("Nytt spel", { size: 18 }), pos(w / 2 + 75, btnY + 22), anchor("center"), color(255, 180, 140), z(11)]);
+  newBtn.onClick(() => { clearSave(); go("game"); });
 });
 
 go("menu");
