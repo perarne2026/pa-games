@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#2f9e6a">
+  <title>Ormen Sigge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ HEM ============ -->
+<section id="home" class="screen active">
+  <div class="top">
+    <div class="pill" id="starsPill">⭐ 0</div>
+    <div class="pill" id="streakPill">🔥 0 dagar</div>
+    <button class="icon" data-go="settings" aria-label="Inställningar">⚙️</button>
+  </div>
+  <h1 class="logo">Ormen <span>Sssigge</span></h1>
+  <canvas id="snakeHome" width="700" height="170"></canvas>
+  <p class="sub" id="homeMsg">Sigge växer för varje stjärna du samlar!</p>
+  <div class="menu">
+    <button class="card c1" data-go="learn"><b>👅 Tungskolan</b><small>Så gör man ett vasst S</small></button>
+    <button class="card c2" data-go="balloon"><b>🎈 Ballongen</b><small>Håll ett långt sssss</small></button>
+    <button class="card c3" data-go="race"><b>☁️ Bomullsracet</b><small>Blås tussen i mål</small></button>
+    <button class="card c4" data-go="words"><b>🔎 Ordjakten</b><small>S i ord och meningar</small></button>
+  </div>
+  <p class="tiny">5–10 minuter om dagen räcker gott 💚</p>
+</section>
+
+<!-- ============ TUNGSKOLAN ============ -->
+<section id="learn" class="screen">
+  <div class="top"><button class="back" data-go="home">← Hem</button><h2>👅 Tungskolan</h2></div>
+  <div class="steps" id="steps"></div>
+  <div class="stepnav">
+    <button class="btn ghost" id="stepPrev">←</button>
+    <span id="stepDots"></span>
+    <button class="btn" id="stepNext">Nästa →</button>
+  </div>
+</section>
+
+<!-- ============ BALLONGEN ============ -->
+<section id="balloon" class="screen">
+  <div class="top"><button class="back" data-go="home">← Hem</button><h2>🎈 Ballongen</h2><div class="pill" id="balLevel">Nivå 1</div></div>
+  <p class="sub" id="balGoal">Blås upp ballongen med ett vasst <b>sssss</b>!</p>
+  <div class="balloonStage" id="balStage">
+    <svg viewBox="0 0 200 260" id="balSvg">
+      <g id="balG">
+        <path id="balString" d="M100 190 Q 92 215 104 235 T 100 260" stroke="#7a6a55" stroke-width="2" fill="none"/>
+        <ellipse id="balBody" cx="100" cy="110" rx="70" ry="80" fill="#ff6b6b"/>
+        <ellipse cx="75" cy="80" rx="14" ry="22" fill="#fff" opacity=".35"/>
+        <path d="M93 188 L107 188 L100 198 Z" fill="#e05555"/>
+      </g>
+    </svg>
+    <div class="leak" id="balLeak">psssh…</div>
+  </div>
+  <div class="meter" id="balMeter"></div>
+  <p class="hint" id="balHint">Tryck på knappen och säg ssssss</p>
+  <button class="btn big" id="balStart">🎤 Börja</button>
+</section>
+
+<!-- ============ BOMULLSRACET ============ -->
+<section id="race" class="screen">
+  <div class="top"><button class="back" data-go="home">← Hem</button><h2>☁️ Bomullsracet</h2><div class="pill" id="raceLevel">Bana 1</div></div>
+  <p class="sub">Säg <b>ssss</b> när det är <span class="g">grönt</span> – <b>tyst</b> när det är <span class="r">rött</span>!</p>
+  <canvas id="raceCanvas" width="800" height="320"></canvas>
+  <div class="meter" id="raceMeter"></div>
+  <div class="row">
+    <div class="pill" id="raceTime">0.0 s</div>
+    <button class="btn big" id="raceStart">🏁 Starta</button>
+    <div class="pill" id="raceBest">Rekord: –</div>
+  </div>
+</section>
+
+<!-- ============ ORDJAKTEN ============ -->
+<section id="words" class="screen">
+  <div class="top"><button class="back" data-go="home">← Hem</button><h2>🔎 Ordjakten</h2></div>
+  <div id="catList" class="menu"></div>
+  <div id="round" class="hidden">
+    <div class="progress"><div id="roundBar"></div></div>
+    <div class="wordcard">
+      <div class="emoji" id="wEmoji">☀️</div>
+      <div class="word" id="wText">sol</div>
+    </div>
+    <div class="meter" id="wordMeter"></div>
+    <div id="wResult" class="result"></div>
+    <div class="row" id="wButtons">
+      <button class="btn big" id="wSay">🎤 Säg det!</button>
+    </div>
+    <div class="row hidden" id="wAfter">
+      <button class="btn ghost" id="wListen">🎧 Lyssna på dig</button>
+      <button class="btn ghost" id="wAgain">🔁 Igen</button>
+      <button class="btn ghost" id="wOk" title="För den vuxna">👍 Lät bra!</button>
+      <button class="btn" id="wNext">Nästa →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INSTÄLLNINGAR ============ -->
+<section id="settings" class="screen">
+  <div class="top"><button class="back" data-go="home">← Hem</button><h2>⚙️ För vuxna</h2></div>
+  <div class="panel">
+    <h3>Hur noga ska Sigge vara?</h3>
+    <div class="seg" id="strictSeg">
+      <button data-v="0">Snäll</button><button data-v="1">Lagom</button><button data-v="2">Sträng</button>
+    </div>
+    <p class="tiny">Börja på <b>Lagom</b>. Om ett S som du tycker låter bra inte godkänns – välj Snäll. Om läspiga S slinker igenom – välj Sträng.</p>
+    <h3>Mikrofontest</h3>
+    <div class="meter" id="setMeter"></div>
+    <p class="mono" id="setDebug">Mikrofonen är inte igång.</p>
+    <button class="btn" id="setMic">🎤 Starta mikrofon</button>
+  </div>
+  <div class="panel">
+    <h3>Så funkar det</h3>
+    <p>Spelet lyssnar på frekvenserna i S-ljudet. Ett vasst <b>[s]</b> har sin energi högt upp (ca 4,5–11 kHz) och ett tydligt glapp ner mot mellanregistret. Ett <b>läspande S</b> (tungan mellan tänderna) låter luftigt och platt, och ett <b>sidoläsp</b> (luften ut på sidan) blir "slaskigt" och glider mot <i>sch</i>.</p>
+    <p>Mätaren är ett hjälpmedel – ditt öra är facit. Använd <b>👍 Lät bra!</b> när Sigge har fel. Stäng av brus­reducering/AirPods; spelet funkar bäst med enhetens inbyggda mikrofon, ca 20–40 cm från munnen.</p>
+    <p>Om läspet sitter i efter några veckors övning, eller om det är sidoläsp, är det värt att prata med logoped.</p>
+    <button class="btn ghost" id="resetBtn">Nollställ stjärnor</button>
+  </div>
+</section>
+
+<!-- Mikrofon-tillstånd -->
+<div id="micGate" class="overlay hidden">
+  <div class="dialog">
+    <div class="emoji">🐍🎤</div>
+    <h2>Sigge vill lyssna!</h2>
+    <p>Jag behöver mikrofonen för att höra dina S. Inget spelas in eller skickas någonstans.</p>
+    <button class="btn big" id="micAllow">Okej, kör!</button>
+    <p class="tiny" id="micErr"></p>
+  </div>
+</div>
+
+<canvas id="confetti"></canvas>
+<div id="toast"></div>
+
+<script src="audio.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
